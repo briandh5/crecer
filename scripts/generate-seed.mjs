@@ -1,7 +1,7 @@
 // Genera supabase/seed.sql a partir de los catálogos JSON que también usa la app,
 // para que el esquema de vacunas y los hitos tengan una sola fuente de verdad.
 //   npm run db:seed   → supabase/seed.sql (solo catálogos) y supabase/setup.sql (esquema + catálogos)
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 
 const root = new URL("../", import.meta.url);
 const vaccines = JSON.parse(readFileSync(new URL("src/data/vaccines.json", root), "utf8"));
@@ -38,7 +38,12 @@ on conflict (id) do update set domain = excluded.domain, month = excluded.month,
 writeFileSync(new URL("supabase/seed.sql", root), sql);
 
 // setup.sql = esquema + catálogos en un solo archivo, para pegarlo de una vez en el SQL Editor de Supabase.
-const schema = readFileSync(new URL("supabase/migrations/0001_schema.sql", root), "utf8");
-writeFileSync(new URL("supabase/setup.sql", root), `${schema}\n-- ===== Catálogos =====\n\n${sql}`);
+// Incluye todas las migraciones en orden. Quien ya tenga una versión anterior solo ejecuta las migraciones nuevas.
+const migrations = readdirSync(new URL("supabase/migrations/", root))
+  .filter((f) => f.endsWith(".sql"))
+  .sort()
+  .map((f) => `-- ===== ${f} =====\n\n${readFileSync(new URL(`supabase/migrations/${f}`, root), "utf8")}`)
+  .join("\n");
+writeFileSync(new URL("supabase/setup.sql", root), `${migrations}\n-- ===== Catálogos =====\n\n${sql}`);
 
 console.log(`supabase/seed.sql y setup.sql: ${vaccines.length} vacunas, ${milestones.length} hitos`);

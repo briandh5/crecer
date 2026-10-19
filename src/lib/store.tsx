@@ -186,6 +186,9 @@ interface Store {
   username: string;
   /** Prefijo de las rutas de este perfil: "/briandh444" o "/demo". */
   base: string;
+  /** Correo de la cuenta; solo en modo cuenta. */
+  email: string | null;
+  setEmail(email: string): void;
   state: DataState;
   child: Child | null;
   sync: SyncStatus;
@@ -216,10 +219,13 @@ interface ProviderProps {
   username: string;
   /** Estado inicial cuando es una cuenta (viene del servidor). */
   initial?: DataState;
+  /** Correo de la cuenta (null si todavía no lo registró). */
+  email?: string | null;
   children: ReactNode;
 }
 
-export function StoreProvider({ mode, username, initial, children: tree }: ProviderProps) {
+export function StoreProvider({ mode, username, initial, email: initialEmail = null, children: tree }: ProviderProps) {
+  const [email, setEmail] = useState<string | null>(initialEmail);
   const [state, dispatch] = useReducer(reducer, initial ?? EMPTY_STATE);
   const [ready, setReady] = useState(false);
   const [today, setToday] = useState("2000-01-01");
@@ -392,8 +398,8 @@ export function StoreProvider({ mode, username, initial, children: tree }: Provi
     [pending, syncError, sessionExpired],
   );
   const value = useMemo<Store>(
-    () => ({ ready, today, mode, username, base: `/${username}`, state, child, sync, photoUrl, actions }),
-    [ready, today, mode, username, state, child, sync, photoUrl, actions],
+    () => ({ ready, today, mode, username, base: `/${username}`, email, setEmail, state, child, sync, photoUrl, actions }),
+    [ready, today, mode, username, email, state, child, sync, photoUrl, actions],
   );
 
   return <StoreContext.Provider value={value}>{tree}</StoreContext.Provider>;

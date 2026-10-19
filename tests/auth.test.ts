@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { hashPassword, hashToken, newSessionToken, validatePassword, validateUsername, verifyPassword } from "../src/server/auth-core.ts";
+import { hashPassword, hashToken, newSessionToken, validateEmail, validatePassword, validateUsername, verifyPassword } from "../src/server/auth-core.ts";
 
 test("usuarios: normaliza y valida", () => {
   assert.deepEqual(validateUsername("  BrianDH444 "), { ok: true, value: "briandh444" });
@@ -42,4 +42,11 @@ test("sesiones: el token es aleatorio y solo se guarda su hash", () => {
   assert.equal(a.hash, hashToken(a.token));
   assert.ok(a.token.length >= 40);
   assert.notEqual(a.token, a.hash);
+});
+
+test("correo: normaliza y valida", () => {
+  assert.deepEqual(validateEmail("  Brian.H+crecer@Correo.COM "), { ok: true, value: "brian.h+crecer@correo.com" });
+  for (const bad of ["", "sin-arroba", "a@b", "a b@c.com", "@c.com", "a@.com".replace(".com", ""), "a@@b.com", null, 7, `${"x".repeat(250)}@c.com`]) {
+    assert.equal(validateEmail(bad).ok, false, `debería rechazar ${JSON.stringify(bad)}`);
+  }
 });

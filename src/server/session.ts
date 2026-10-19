@@ -8,6 +8,9 @@ export const SESSION_COOKIE = "crecer_session";
 export interface SessionUser {
   id: string;
   username: string;
+  email: string | null;
+  /** Hash del token de esta sesión (para conservarla al cerrar las demás). */
+  sessionHash: string;
 }
 
 /** Usuario de la sesión actual (o null). Se memoriza por petición. */
@@ -15,7 +18,7 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token || token.length > 100) return null;
   const { rows } = await query<SessionUser>(
-    `select u.id, u.username
+    `select u.id, u.username, u.email, s.token_hash as "sessionHash"
        from public.sessions s join public.users u on u.id = s.user_id
       where s.token_hash = $1 and s.expires_at > now()`,
     [hashToken(token)],
@@ -45,4 +48,9 @@ export async function endSession(): Promise<void> {
   const token = jar.get(SESSION_COOKIE)?.value;
   if (token) await query(`delete from public.sessions where token_hash = $1`, [hashToken(token)]).catch(() => {});
   jar.delete(SESSION_COOKIE);
+}
+
+/** Cierra todas las sesiones de la cuenta menos la indicada (p. ej. al cambiar la contraseña). */
+export async function endOtherSessions(userId: string, keepHash: string): Promise<void> {
+  await query(`delete from public.sessions where user_id = $1 and token_hash <> $2`, [userId, keepHash]);
 }

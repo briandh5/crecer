@@ -73,7 +73,7 @@ export default async function ProfileLayout({ children, params }: { children: Re
 
   const initial = await loadState(session.id);
   return (
-    <StoreProvider mode="remote" username={username} initial={initial}>
+    <StoreProvider mode="remote" username={username} initial={initial} email={session.email}>
       <AppShell>{children}</AppShell>
     </StoreProvider>
   );

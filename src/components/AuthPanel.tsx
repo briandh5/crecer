@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 
 interface Props {
@@ -12,10 +13,12 @@ interface Props {
 }
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9_-]{2,29}$/;
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 export function AuthPanel({ initialUsername = "", lockUsername = false, allowRegister = true, defaultTab = "login" }: Props) {
   const [tab, setTab] = useState<"login" | "register">(lockUsername ? "login" : defaultTab);
   const [username, setUsername] = useState(initialUsername);
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [show, setShow] = useState(false);
@@ -30,10 +33,17 @@ export function AuthPanel({ initialUsername = "", lockUsername = false, allowReg
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!USERNAME_RE.test(cleanUser)) {
-      return setError("El usuario debe tener de 3 a 30 caracteres: letras minúsculas, números, «_» o «-», sin espacios ni tildes.");
+    // Para entrar vale el usuario o el correo; para registrarse, un usuario con el formato del enlace.
+    const loginByEmail = !register && cleanUser.includes("@");
+    if (loginByEmail ? !EMAIL_RE.test(cleanUser) : !USERNAME_RE.test(cleanUser)) {
+      return setError(
+        loginByEmail
+          ? "Escribe un correo válido, por ejemplo nombre@correo.com."
+          : "El usuario debe tener de 3 a 30 caracteres: letras minúsculas, números, «_» o «-», sin espacios ni tildes.",
+      );
     }
     if (register) {
+      if (!EMAIL_RE.test(email.trim())) return setError("Escribe un correo válido: lo usaremos para que puedas recuperar tu contraseña.");
       if (password.length < 8) return setError("La contraseña debe tener al menos 8 caracteres.");
       if (password !== confirm) return setError("Las contraseñas no coinciden.");
     } else if (!password) {
@@ -45,7 +55,7 @@ export function AuthPanel({ initialUsername = "", lockUsername = false, allowReg
       const res = await fetch(`/api/auth/${register ? "register" : "login"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: cleanUser, password }),
+        body: JSON.stringify(register ? { username: cleanUser, email: email.trim(), password } : { username: cleanUser, password }),
       });
       const body = (await res.json().catch(() => null)) as { error?: string; username?: string } | null;
       if (!res.ok) {
@@ -85,7 +95,7 @@ export function AuthPanel({ initialUsername = "", lockUsername = false, allowReg
 
       <form onSubmit={submit} className="space-y-4" noValidate>
         <div>
-          <label htmlFor="a-user" className="label">Usuario</label>
+          <label htmlFor="a-user" className="label">{register || lockUsername ? "Usuario" : "Usuario o correo"}</label>
           <input
             id="a-user"
             className="field"
@@ -105,6 +115,25 @@ export function AuthPanel({ initialUsername = "", lockUsername = false, allowReg
             </p>
           )}
         </div>
+        {register && (
+          <div>
+            <label htmlFor="a-email" className="label">Correo electrónico</label>
+            <input
+              id="a-email"
+              className="field"
+              type="email"
+              inputMode="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              autoCapitalize="none"
+              spellCheck={false}
+              maxLength={254}
+              placeholder="nombre@correo.com"
+            />
+            <p className="mt-1.5 text-xs text-ink-muted">Solo lo usamos para que puedas recuperar tu contraseña.</p>
+          </div>
+        )}
         <div>
           <label htmlFor="a-pass" className="label">Contraseña</label>
           <div className="relative">
@@ -127,7 +156,7 @@ export function AuthPanel({ initialUsername = "", lockUsername = false, allowReg
           <div>
             <label htmlFor="a-pass2" className="label">Repite la contraseña</label>
             <input id="a-pass2" className="field" type={show ? "text" : "password"} value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" maxLength={200} />
-            <p className="mt-1.5 text-xs text-ink-muted">Mínimo 8 caracteres. Guárdala bien: por ahora no hay recuperación por correo.</p>
+            <p className="mt-1.5 text-xs text-ink-muted">Mínimo 8 caracteres.</p>
           </div>
         )}
 
@@ -136,6 +165,13 @@ export function AuthPanel({ initialUsername = "", lockUsername = false, allowReg
         <button type="submit" className="btn-primary w-full" disabled={busy}>
           {busy ? "Un momento…" : register ? "Crear mi cuenta" : "Entrar"}
         </button>
+        {!register && (
+          <p className="text-center text-sm">
+            <Link href={cleanUser && !cleanUser.includes("@") ? `/recuperar?u=${encodeURIComponent(cleanUser)}` : "/recuperar"} className="font-bold text-moss hover:underline">
+              ¿Olvidaste tu contraseña?
+            </Link>
+          </p>
+        )}
       </form>
     </div>
   );

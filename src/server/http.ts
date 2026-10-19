@@ -29,3 +29,13 @@ export function handleError(e: unknown) {
   console.error("[crecer] error no controlado:", e);
   return fail(500, "Algo salió mal en el servidor. Inténtalo de nuevo.");
 }
+
+/**
+ * Dirección pública del sitio para armar enlaces en correos. Se prefiere APP_URL (fijada por quien despliega)
+ * para que un encabezado Host falsificado no pueda apuntar el enlace a otro sitio.
+ */
+export function appUrl(req: Request): string {
+  const fixed = process.env.APP_URL?.trim().replace(/\/+$/, "");
+  if (fixed) return fixed;
+  return new URL(req.url).origin;
+}

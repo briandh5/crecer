@@ -6,6 +6,7 @@ export const RESERVED_USERNAMES = new Set([
   "api", "demo", "login", "logout", "registro", "signup", "signin", "admin", "root", "soporte", "ayuda", "app",
   "crecer", "crecimiento", "vacunas", "hitos", "diario", "perfil", "nuevo", "static", "public", "assets",
   "favicon", "robots", "sitemap", "manifest", "privacidad", "terminos", "www", "null", "undefined", "me", "yo",
+  "recuperar", "restablecer", "cuenta", "olvide", "reset", "password", "contrasena",
 ]);
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9_-]{2,29}$/;
@@ -21,6 +22,16 @@ export function validateUsername(raw: unknown): Checked<string> {
   }
   if (RESERVED_USERNAMES.has(username)) return { ok: false, error: "Ese nombre de usuario no está disponible." };
   return { ok: true, value: username };
+}
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+/** Normaliza (minúsculas, sin espacios) y valida de forma básica: algo@dominio.ext, máximo 254 caracteres. */
+export function validateEmail(raw: unknown): Checked<string> {
+  if (typeof raw !== "string") return { ok: false, error: "Escribe tu correo electrónico." };
+  const email = raw.trim().toLowerCase();
+  if (email.length > 254 || !EMAIL_RE.test(email)) return { ok: false, error: "Escribe un correo electrónico válido, por ejemplo nombre@correo.com." };
+  return { ok: true, value: email };
 }
 
 const COMMON_PASSWORDS = new Set([
@@ -79,3 +90,9 @@ export function newSessionToken(): { token: string; hash: string } {
 }
 
 export const SESSION_DAYS = 30;
+
+/** Minutos de vigencia de un enlace de restablecimiento. */
+export const RESET_MINUTES = 60;
+
+/** Token aleatorio de un solo uso (para enlaces de correo). Se envía tal cual y en la base solo se guarda su hash. */
+export const newResetToken = newSessionToken;

@@ -27,7 +27,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const account =
     mode === "remote" ? (
       <div className="flex items-center gap-2 text-sm">
-        <span className="rounded-full bg-white/80 px-3 py-1.5 font-bold text-moss shadow-soft">@{username}</span>
+        <Link href={`${base}/cuenta`} className="rounded-full bg-white/80 px-3 py-1.5 font-bold text-moss shadow-soft hover:bg-white" aria-label={`Mi cuenta, @${username}`}>@{username}</Link>
         <button type="button" onClick={actions.logout} className="rounded-full px-3 py-1.5 font-bold text-ink-soft underline-offset-2 hover:underline">
           Salir
         </button>

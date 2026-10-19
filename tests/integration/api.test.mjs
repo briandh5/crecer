@@ -2,20 +2,27 @@
 //   BASE_URL=http://localhost:3100 npm run test:integration
 import assert from "node:assert/strict";
 import { randomUUID, randomBytes } from "node:crypto";
-import { test, before } from "node:test";
+import { test, before, after } from "node:test";
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+const { SMTPServer } = require("smtp-server");
+const { simpleParser } = require("mailparser");
+const pg = require("pg");
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3100";
 const IP = `10.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
 const suffix = randomBytes(3).toString("hex");
 const nameA = `ana-${suffix}`;
 const nameB = `luis-${suffix}`;
+const emailA = `ana-${suffix}@correo.test`;
+const emailB = `luis-${suffix}@correo.test`;
 const PASS = "una clave larga 123";
 
 /** Cliente mínimo con cookie propia. */
-function client() {
+function client(ip = IP) {
   let cookie = "";
   const call = async (path, { method = "GET", body, headers = {}, origin = BASE, raw } = {}) => {
-    const h = { "x-real-ip": IP, ...headers };
+    const h = { "x-real-ip": ip, ...headers };
     if (cookie) h.cookie = cookie;
     if (origin) h.origin = origin;
     let payload;
@@ -51,16 +58,29 @@ before(async () => {
 });
 
 test("registro: valida usuario y contraseña", async () => {
-  for (const [username, password] of [["ab", PASS], ["con espacio", PASS], ["api", PASS], [nameA, "corta"], [nameA, "12345678"]]) {
-    const r = await A.json("/api/auth/register", { method: "POST", body: { username, password } });
-    assert.equal(r.status, 400, `${username}/${password}`);
+  const good = { username: nameA, email: emailA, password: PASS };
+  const cases = [
+    { ...good, username: "ab" },
+    { ...good, username: "con espacio" },
+    { ...good, username: "api" },
+    { ...good, password: "corta" },
+    { ...good, password: "12345678" },
+    { ...good, email: "" },
+    { ...good, email: "sin-arroba" },
+    { ...good, email: "a@b" },
+    { ...good, email: null },
+    { username: nameA, password: PASS }, // sin correo
+  ];
+  for (const body of cases) {
+    const r = await A.json("/api/auth/register", { method: "POST", body });
+    assert.equal(r.status, 400, JSON.stringify(body));
     assert.ok(r.body.error);
   }
   assert.equal(A.cookie, "", "un registro inválido no abre sesión");
 });
 
 test("registro y login: crea cuenta, abre sesión y no repite usuario", async () => {
-  const r = await A.json("/api/auth/register", { method: "POST", body: { username: nameA.toUpperCase(), password: PASS } });
+  const r = await A.json("/api/auth/register", { method: "POST", body: { username: nameA.toUpperCase(), email: ` ${emailA.toUpperCase()} `, password: PASS } });
   assert.equal(r.status, 201);
   assert.equal(r.body.username, nameA, "se guarda en minúsculas");
   assert.match(A.cookie, /^crecer_session=.{40,}/);
@@ -68,10 +88,14 @@ test("registro y login: crea cuenta, abre sesión y no repite usuario", async ()
   assert.match(setCookie, /HttpOnly/i);
   assert.match(setCookie, /SameSite=lax/i);
 
-  const dup = await B.json("/api/auth/register", { method: "POST", body: { username: nameA, password: PASS } });
+  const dup = await B.json("/api/auth/register", { method: "POST", body: { username: nameA, email: emailB, password: PASS } });
   assert.equal(dup.status, 409);
+  assert.match(dup.body.error, /usuario/);
+  const dupMail = await B.json("/api/auth/register", { method: "POST", body: { username: nameB, email: emailA, password: PASS } });
+  assert.equal(dupMail.status, 409);
+  assert.match(dupMail.body.error, /correo/);
 
-  const reg = await B.json("/api/auth/register", { method: "POST", body: { username: nameB, password: PASS } });
+  const reg = await B.json("/api/auth/register", { method: "POST", body: { username: nameB, email: emailB, password: PASS } });
   assert.equal(reg.status, 201);
 });
 
@@ -91,7 +115,7 @@ test("login: contraseña incorrecta y usuario inexistente dan el mismo error", a
 test("login: se bloquea tras demasiados fallos", async () => {
   const victim = `bloqueo-${suffix}`;
   const c = client();
-  await c.json("/api/auth/register", { method: "POST", body: { username: victim, password: PASS } });
+  await c.json("/api/auth/register", { method: "POST", body: { username: victim, email: `${victim}@correo.test`, password: PASS } });
   const other = client();
   let last;
   for (let i = 0; i < 11; i++) last = await other.json("/api/auth/login", { method: "POST", body: { username: victim, password: `mala clave ${i} larga` } });
@@ -269,4 +293,186 @@ test("cerrar sesión invalida la cookie", async () => {
   const again = await A.json("/api/auth/login", { method: "POST", body: { username: nameA, password: PASS } });
   assert.equal(again.status, 200);
   assert.equal((await A.json("/api/state")).body.children.length, 1, "los datos siguen ahí al volver a entrar");
+});
+
+
+// ---------------------------------------------------------------------------------------------
+// Recuperación de contraseña y cuenta. Necesita el servidor arrancado con
+//   SMTP_HOST=127.0.0.1 SMTP_PORT=2525 SMTP_SECURE=false APP_URL=<BASE_URL>
+// y DATABASE_URL (para caducar un enlace a mano).
+// ---------------------------------------------------------------------------------------------
+const inbox = [];
+const sink = new SMTPServer({
+  authOptional: true,
+  disabledCommands: ["STARTTLS", "AUTH"],
+  onData(stream, _session, cb) {
+    simpleParser(stream).then((mail) => {
+      inbox.push({ to: mail.to.value.map((a) => a.address), subject: mail.subject, text: mail.text, html: mail.html });
+      cb();
+    }, cb);
+  },
+});
+await new Promise((resolve) => sink.listen(2525, "127.0.0.1", resolve));
+after(() => sink.close());
+
+const db = process.env.DATABASE_URL ? new pg.Pool({ connectionString: process.env.DATABASE_URL, ssl: false, max: 1 }) : null;
+after(() => db?.end());
+
+const mailsTo = (addr) => inbox.filter((m) => m.to.includes(addr));
+async function waitForMails(addr, n, ms = 6000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (mailsTo(addr).length >= n) return mailsTo(addr);
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return mailsTo(addr);
+}
+const tokenOf = (mail) => new URL(mail.text.match(/https?:\/\/\S+/)[0]).searchParams.get("token");
+
+test("recuperación: respuesta idéntica exista o no la cuenta, y solo se envía correo a cuentas reales", async () => {
+  const c = client("10.9.9.1");
+  const ghost = await c.json("/api/auth/forgot", { method: "POST", body: { identifier: `nadie-${suffix}` } });
+  const ghostMail = await c.json("/api/auth/forgot", { method: "POST", body: { identifier: `nadie-${suffix}@correo.test` } });
+  const real = await c.json("/api/auth/forgot", { method: "POST", body: { identifier: nameB } });
+  assert.deepEqual([ghost.status, ghostMail.status, real.status], [200, 200, 200]);
+  assert.deepEqual(ghost.body, real.body, "misma respuesta para cuentas que existen y que no");
+  const mails = await waitForMails(emailB, 1);
+  assert.equal(mails.length, 1);
+  assert.equal(inbox.filter((m) => m.to.some((a) => a.startsWith("nadie-"))).length, 0);
+  assert.match(mails[0].subject, /contraseña/i);
+  assert.match(mails[0].text, new RegExp(`@${nameB}`));
+  assert.match(mails[0].text, new RegExp(`^.*${BASE.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}/restablecer\\?token=`, "m"));
+  assert.ok(tokenOf(mails[0]).length >= 40);
+  assert.match(mails[0].html, /restablecer\?token=/);
+});
+
+test("recuperación: por correo, con caducidad, un solo uso y sesiones cerradas", async () => {
+  const user = `recu-${suffix}`;
+  const mail = `${user}@correo.test`;
+  const OLD = "contraseña vieja 123";
+  const NEW = "contraseña nueva 456";
+  const dev1 = client("10.9.9.2");
+  const reg = await dev1.json("/api/auth/register", { method: "POST", body: { username: user, email: mail, password: OLD } });
+  assert.equal(reg.status, 201);
+  assert.equal((await dev1.json("/api/state")).status, 200);
+
+  // Se puede pedir con el correo (en minúsculas o no).
+  const req1 = await client("10.9.9.2").json("/api/auth/forgot", { method: "POST", body: { identifier: mail.toUpperCase() } });
+  assert.equal(req1.status, 200);
+  const [m1] = await waitForMails(mail, 1);
+  const tok1 = tokenOf(m1);
+
+  // Un segundo enlace anula el primero.
+  await client("10.9.9.3").json("/api/auth/forgot", { method: "POST", body: { identifier: user } });
+  const m2 = (await waitForMails(mail, 2))[1];
+  const tok2 = tokenOf(m2);
+  assert.notEqual(tok1, tok2);
+  const stale = await client("10.9.9.4").json("/api/auth/reset", { method: "POST", body: { token: tok1, password: NEW } });
+  assert.equal(stale.status, 400, "el enlace anterior ya no sirve");
+
+  // Contraseña débil: se rechaza sin gastar el enlace.
+  const weak = await client("10.9.9.4").json("/api/auth/reset", { method: "POST", body: { token: tok2, password: "corta" } });
+  assert.equal(weak.status, 400);
+  const same = await client("10.9.9.4").json("/api/auth/reset", { method: "POST", body: { token: tok2, password: user } });
+  assert.equal(same.status, 400);
+
+  // Token inventado o vacío.
+  for (const t of ["", "x", randomBytes(32).toString("base64url")]) {
+    assert.equal((await client("10.9.9.4").json("/api/auth/reset", { method: "POST", body: { token: t, password: NEW } })).status, 400);
+  }
+
+  // Caducado a mano: no sirve.
+  if (db) {
+    await db.query(`update public.password_resets set expires_at = now() - interval '1 minute' where user_id = (select id from public.users where username = $1)`, [user]);
+    const expired = await client("10.9.9.4").json("/api/auth/reset", { method: "POST", body: { token: tok2, password: NEW } });
+    assert.equal(expired.status, 400, "enlace vencido");
+    await db.query(`update public.password_resets set expires_at = now() + interval '30 minutes' where user_id = (select id from public.users where username = $1)`, [user]);
+  }
+
+  // Éxito.
+  const ok = await client("10.9.9.4").json("/api/auth/reset", { method: "POST", body: { token: tok2, password: NEW } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.username, user);
+
+  const reuse = await client("10.9.9.4").json("/api/auth/reset", { method: "POST", body: { token: tok2, password: "otra contraseña 789" } });
+  assert.equal(reuse.status, 400, "un enlace solo se usa una vez");
+
+  assert.equal((await dev1.json("/api/state")).status, 401, "la sesión abierta antes del cambio se cerró");
+  assert.equal((await client("10.9.9.4").json("/api/auth/login", { method: "POST", body: { username: user, password: OLD } })).status, 401, "la vieja ya no entra");
+  const fresh = client("10.9.9.4");
+  assert.equal((await fresh.json("/api/auth/login", { method: "POST", body: { username: user, password: NEW } })).status, 200);
+  // Y también se puede entrar con el correo.
+  const byMail = client("10.9.9.4");
+  assert.equal((await byMail.json("/api/auth/login", { method: "POST", body: { username: mail, password: NEW } })).status, 200);
+  assert.equal((await byMail.json("/api/state")).status, 200);
+});
+
+test("recuperación: límite por cuenta y por IP, y origen obligatorio", async () => {
+  const user = `limite-${suffix}`;
+  const mail = `${user}@correo.test`;
+  await client("10.9.9.5").json("/api/auth/register", { method: "POST", body: { username: user, email: mail, password: PASS } });
+  const ip = "10.9.9.6";
+  for (let i = 0; i < 4; i++) {
+    const r = await client(ip).json("/api/auth/forgot", { method: "POST", body: { identifier: user } });
+    assert.equal(r.status, 200, "siempre la misma respuesta, aunque ya no envíe");
+  }
+  await new Promise((r) => setTimeout(r, 1000));
+  assert.equal(mailsTo(mail).length, 3, "máximo 3 correos por hora y cuenta");
+  const many = client("10.9.9.7");
+  let last;
+  for (let i = 0; i < 6; i++) last = await many.json("/api/auth/forgot", { method: "POST", body: { identifier: `x${i}-${suffix}` } });
+  assert.equal(last.status, 429, "máximo 5 solicitudes por hora y por IP");
+  assert.equal((await client("10.9.9.8").json("/api/auth/forgot", { method: "POST", body: { identifier: user }, origin: "https://malo.example" })).status, 403);
+  assert.equal((await client("10.9.9.8").json("/api/auth/reset", { method: "POST", body: { token: "x", password: PASS }, origin: null })).status, 403);
+});
+
+test("cuenta: cambiar contraseña y correo exige la contraseña actual", async () => {
+  const user = `cuenta-${suffix}`;
+  const mail = `${user}@correo.test`;
+  const P1 = "primera clave 1234";
+  const P2 = "segunda clave 5678";
+  const d1 = client("10.9.9.10");
+  const d2 = client("10.9.9.10");
+  await d1.json("/api/auth/register", { method: "POST", body: { username: user, email: mail, password: P1 } });
+  await d2.json("/api/auth/login", { method: "POST", body: { username: user, password: P1 } });
+  assert.equal((await d2.json("/api/state")).status, 200);
+
+  const anon = client("10.9.9.10");
+  assert.equal((await anon.json("/api/account/password", { method: "POST", body: { current: P1, next: P2 } })).status, 401);
+  assert.equal((await d1.json("/api/account/password", { method: "POST", body: { current: "equivocada 123", next: P2 } })).status, 403);
+  assert.equal((await d1.json("/api/account/password", { method: "POST", body: { current: P1, next: "corta" } })).status, 400);
+  assert.equal((await d1.json("/api/account/password", { method: "POST", body: { current: P1, next: P2 }, origin: null })).status, 403);
+  assert.equal((await d1.json("/api/account/password", { method: "POST", body: { current: P1, next: P2 } })).status, 200);
+  assert.equal((await d1.json("/api/state")).status, 200, "la sesión desde la que se cambió sigue abierta");
+  assert.equal((await d2.json("/api/state")).status, 401, "las demás se cerraron");
+  assert.equal((await client("10.9.9.10").json("/api/auth/login", { method: "POST", body: { username: user, password: P1 } })).status, 401);
+  assert.equal((await client("10.9.9.10").json("/api/auth/login", { method: "POST", body: { username: user, password: P2 } })).status, 200);
+
+  // Correo
+  assert.equal((await d1.json("/api/account/email", { method: "POST", body: { password: "equivocada 123", email: "otro@correo.test" } })).status, 403);
+  assert.equal((await d1.json("/api/account/email", { method: "POST", body: { password: P2, email: "no-es-correo" } })).status, 400);
+  assert.equal((await d1.json("/api/account/email", { method: "POST", body: { password: P2, email: emailA } })).status, 409, "ya lo usa otra cuenta");
+  const newMail = `nuevo-${suffix}@correo.test`;
+  const ch = await d1.json("/api/account/email", { method: "POST", body: { password: P2, email: newMail.toUpperCase() } });
+  assert.equal(ch.status, 200);
+  assert.equal(ch.body.email, newMail);
+  await client("10.9.9.11").json("/api/auth/forgot", { method: "POST", body: { identifier: user } });
+  assert.equal((await waitForMails(newMail, 1)).length, 1, "ahora el enlace llega al correo nuevo");
+  assert.equal(mailsTo(mail).length, 0, "y no al anterior");
+});
+
+test("cuentas sin correo (anteriores a la migración) no reciben enlaces", async () => {
+  if (!db) return;
+  const user = `sinmail-${suffix}`;
+  await client("10.9.9.12").json("/api/auth/register", { method: "POST", body: { username: user, email: `${user}@correo.test`, password: PASS } });
+  await db.query(`update public.users set email = null where username = $1`, [user]);
+  const r = await client("10.9.9.12").json("/api/auth/forgot", { method: "POST", body: { identifier: user } });
+  assert.equal(r.status, 200);
+  await new Promise((res) => setTimeout(res, 800));
+  assert.equal(mailsTo(`${user}@correo.test`).length, 0);
+  // Puede agregar su correo desde «Cuenta».
+  const c = client("10.9.9.12");
+  await c.json("/api/auth/login", { method: "POST", body: { username: user, password: PASS } });
+  const add = await c.json("/api/account/email", { method: "POST", body: { password: PASS, email: `${user}@correo.test` } });
+  assert.equal(add.status, 200);
 });
