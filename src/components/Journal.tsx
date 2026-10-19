@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ageInMonths, formatDate, formatMonths } from "@/lib/date";
 import { useStore } from "@/lib/store";
 import type { Child, JournalKind } from "@/lib/types";
+import { preparePhoto, PhotoError } from "@/lib/image";
 import { PlusIcon, TrashIcon } from "./Icons";
 
 export const KINDS: { id: JournalKind; label: string; title: string; dot: string }[] = [
@@ -17,7 +19,7 @@ export const KINDS: { id: JournalKind; label: string; title: string; dot: string
 ];
 
 export function Journal({ child }: { child: Child }) {
-  const { state, today, actions } = useStore();
+  const { state, today, actions, mode, photoUrl } = useStore();
   const [adding, setAdding] = useState(false);
   const [kind, setKind] = useState<JournalKind>("sonrisa");
   const [title, setTitle] = useState(KINDS[0].title);
@@ -25,6 +27,27 @@ export function Journal({ child }: { child: Child }) {
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<{ blob: Blob; preview: string } | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Libera la vista previa al cambiarla o al salir.
+  useEffect(() => () => (photo ? URL.revokeObjectURL(photo.preview) : undefined), [photo]);
+
+  async function pickPhoto(file: File | undefined) {
+    if (!file) return;
+    setError(null);
+    setPhotoBusy(true);
+    try {
+      const blob = await preparePhoto(file);
+      setPhoto({ blob, preview: URL.createObjectURL(blob) });
+    } catch (e) {
+      setError(e instanceof PhotoError ? e.message : "No se pudo preparar la foto.");
+    } finally {
+      setPhotoBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
 
   const entries = useMemo(
     () => state.journal.filter((j) => j.childId === child.id).sort((a, b) => (a.occurredAt < b.occurredAt ? 1 : -1)),
@@ -41,9 +64,10 @@ export function Journal({ child }: { child: Child }) {
     if (!title.trim()) return setError("Ponle un título al recuerdo.");
     if (date < child.birthDate) return setError("La fecha no puede ser anterior al nacimiento.");
     if (date > today) return setError("La fecha no puede estar en el futuro.");
-    actions.addJournal({ childId: child.id, kind, title: title.trim(), occurredAt: date, note: note.trim() });
+    actions.addJournal({ childId: child.id, kind, title: title.trim(), occurredAt: date, note: note.trim() }, photo?.blob);
     setAdding(false);
     setNote("");
+    setPhoto(null);
     setError(null);
     setDate(today);
   }
@@ -86,10 +110,32 @@ export function Journal({ child }: { child: Child }) {
             <label htmlFor="j-note" className="label">Notas (opcional)</label>
             <textarea id="j-note" className="field min-h-[96px] resize-y" value={note} onChange={(e) => setNote(e.target.value)} maxLength={600} placeholder="Dónde estaban, qué dijo, cómo reaccionaron…" />
           </div>
+          <div>
+            <span className="label">Foto (opcional)</span>
+            {mode === "demo" ? (
+              <p className="rounded-2xl bg-linen-100 px-4 py-3 text-sm text-ink-soft">
+                Las fotos se guardan solo en cuentas.{" "}
+                <Link href="/" className="font-bold text-moss underline underline-offset-2">Crea tu cuenta</Link> para subirlas.
+              </p>
+            ) : photo ? (
+              <div className="flex items-center gap-4">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photo.preview} alt="Vista previa de la foto elegida" className="h-24 w-24 rounded-2xl object-cover shadow-soft" />
+                <button type="button" className="btn-ghost" onClick={() => setPhoto(null)}>Quitar foto</button>
+              </div>
+            ) : (
+              <>
+                <input ref={fileRef} id="j-photo" type="file" accept="image/*" className="peer sr-only" onChange={(e) => pickPhoto(e.target.files?.[0])} />
+                <label htmlFor="j-photo" className="btn-soft cursor-pointer peer-focus-visible:ring-4 peer-focus-visible:ring-sage/40">
+                  {photoBusy ? "Preparando foto…" : "Elegir o tomar una foto"}
+                </label>
+              </>
+            )}
+          </div>
           {error && <p role="alert" className="rounded-2xl bg-terracotta-50 px-4 py-2.5 text-sm font-semibold text-terracotta-700">{error}</p>}
           <div className="flex gap-2">
-            <button type="submit" className="btn-primary">Guardar recuerdo</button>
-            <button type="button" className="btn-ghost" onClick={() => { setAdding(false); setError(null); }}>Cancelar</button>
+            <button type="submit" className="btn-primary" disabled={photoBusy}>Guardar recuerdo</button>
+            <button type="button" className="btn-ghost" onClick={() => { setAdding(false); setError(null); setPhoto(null); }}>Cancelar</button>
           </div>
         </form>
       )}
@@ -127,6 +173,12 @@ export function Journal({ child }: { child: Child }) {
                     )}
                   </div>
                   {e.note && <p className="mt-2 whitespace-pre-line text-ink-soft">{e.note}</p>}
+                  {photoUrl(e) && (
+                    <a href={photoUrl(e)!} target="_blank" rel="noreferrer" className="mt-3 block overflow-hidden rounded-2xl bg-linen-100" aria-label={`Abrir la foto de «${e.title}» en grande`}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={photoUrl(e)!} alt={`Foto del recuerdo: ${e.title}`} loading="lazy" className="max-h-96 w-full object-cover" />
+                    </a>
+                  )}
                 </article>
               </li>
             );

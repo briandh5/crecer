@@ -1,0 +1,388 @@
+-- Crecer · esquema de datos (PostgreSQL; pensado para Supabase)
+--
+--   users ──1:N── sessions
+--     └──1:N── children ──1:N── measurements
+--                 │  ├──N:M── vaccines   (vía child_vaccines)
+--                 │  ├──N:M── milestones (vía child_milestones)
+--                 │  └──1:N── journal_entries ──1:1── journal_photos
+--
+-- Las cuentas (usuario + contraseña) las gestiona la propia app (src/server/auth.ts):
+-- contraseñas con scrypt y sesiones con token aleatorio guardado como hash.
+--
+-- La app se conecta SIEMPRE desde el servidor (variable DATABASE_URL, rol postgres) y comprueba
+-- que cada fila pertenezca a quien la pide. Como en Supabase las tablas de `public` también se
+-- exponen por la API REST con la clave anónima, TODAS tienen RLS activado y ninguna política:
+-- eso bloquea cualquier acceso por esa vía (el rol postgres del servidor se salta el RLS).
+--
+-- `vaccines` y `milestones` son catálogos compartidos (se cargan con seed.sql).
+
+create extension if not exists pgcrypto;
+
+-- ---------------------------------------------------------------------------
+-- Cuentas y sesiones
+-- ---------------------------------------------------------------------------
+create table public.users (
+  id            uuid primary key default gen_random_uuid(),
+  username      text not null check (username ~ '^[a-z0-9][a-z0-9_-]{2,29}$'),
+  password_hash text not null,
+  created_at    timestamptz not null default now()
+);
+create unique index users_username_key on public.users (username);
+
+create table public.sessions (
+  token_hash text primary key,                    -- sha256 del token que viaja en la cookie
+  user_id    uuid not null references public.users (id) on delete cascade,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+create index sessions_user_idx on public.sessions (user_id);
+create index sessions_expires_idx on public.sessions (expires_at);
+
+-- Eventos para limitar intentos (inicios de sesión fallidos, registros por IP).
+create table public.rate_events (
+  bucket text not null,
+  at     timestamptz not null default now()
+);
+create index rate_events_bucket_idx on public.rate_events (bucket, at);
+
+-- ---------------------------------------------------------------------------
+-- Hijos/as (multi-perfil: una cuenta puede tener N)
+-- ---------------------------------------------------------------------------
+create table public.children (
+  id               uuid primary key,              -- lo genera el cliente (permite guardar sin esperar)
+  owner_id         uuid not null references public.users (id) on delete cascade,
+  name             text not null check (char_length(btrim(name)) between 1 and 60),
+  birth_date       date not null,
+  sex              text not null default 'unspecified' check (sex in ('female', 'male', 'unspecified')),
+  tone             text not null default 'moss' check (tone in ('moss', 'sage', 'terracotta', 'sand')),
+  blood_type       text not null default 'unknown'
+                   check (blood_type in ('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'unknown')),
+  allergies        text[] not null default '{}',
+  notes            text not null default '' check (char_length(notes) <= 500),
+  -- Ficha de crecimiento inicial (datos de nacimiento)
+  birth_weight_kg  numeric(5, 3) check (birth_weight_kg between 0.3 and 10),
+  birth_length_cm  numeric(4, 1) check (birth_length_cm between 20 and 70),
+  birth_head_cm    numeric(4, 1) check (birth_head_cm   between 15 and 50),
+  created_at       timestamptz not null default now()
+);
+create index children_owner_idx on public.children (owner_id);
+
+-- ---------------------------------------------------------------------------
+-- Antropometría (historial de mediciones)
+-- ---------------------------------------------------------------------------
+create table public.measurements (
+  id          uuid primary key,
+  child_id    uuid not null references public.children (id) on delete cascade,
+  measured_at date not null,
+  weight_kg   numeric(5, 2) check (weight_kg between 0.3 and 250),
+  height_cm   numeric(5, 1) check (height_cm between 20 and 230),
+  head_cm     numeric(4, 1) check (head_cm   between 15 and 70),
+  note        text not null default '' check (char_length(note) <= 120),
+  source      text not null default 'manual' check (source in ('birth', 'manual')),
+  created_at  timestamptz not null default now(),
+  constraint measurements_has_value check (weight_kg is not null or height_cm is not null or head_cm is not null)
+);
+create index measurements_child_date_idx on public.measurements (child_id, measured_at);
+-- Una sola medición "de nacimiento" por hijo/a: la mantiene el trigger de abajo.
+create unique index measurements_one_birth_idx on public.measurements (child_id) where source = 'birth';
+
+-- La ficha inicial de `children` es la fuente de verdad del primer punto de la curva.
+create function public.sync_birth_measurement() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if new.birth_weight_kg is null and new.birth_length_cm is null and new.birth_head_cm is null then
+    delete from public.measurements where child_id = new.id and source = 'birth';
+  else
+    insert into public.measurements (id, child_id, measured_at, weight_kg, height_cm, head_cm, note, source)
+    values (gen_random_uuid(), new.id, new.birth_date, new.birth_weight_kg, new.birth_length_cm, new.birth_head_cm,
+            'Datos de nacimiento', 'birth')
+    on conflict (child_id) where source = 'birth'
+    do update set measured_at = excluded.measured_at,
+                  weight_kg   = excluded.weight_kg,
+                  height_cm   = excluded.height_cm,
+                  head_cm     = excluded.head_cm;
+  end if;
+  return new;
+end $$;
+
+create trigger children_sync_birth_measurement
+  after insert or update of birth_date, birth_weight_kg, birth_length_cm, birth_head_cm on public.children
+  for each row execute function public.sync_birth_measurement();
+
+-- ---------------------------------------------------------------------------
+-- Vacunas: catálogo (esquema de referencia) + aplicaciones por hijo/a
+-- ---------------------------------------------------------------------------
+create table public.vaccines (
+  id               text primary key,                 -- p. ej. 'hexa-2'
+  series           text not null,                    -- agrupa dosis de una misma vacuna: 'hexa'
+  name             text not null,
+  dose             text not null,                    -- '2.ª dosis', 'Refuerzo'…
+  protects_against text not null,
+  due_month        smallint not null check (due_month >= 0),   -- edad recomendada, en meses
+  group_id         text not null check (group_id in ('0-2m', '4m', '6m', '12-18m', 'escolar', 'adolescencia')),
+  optional         boolean not null default false,   -- depende del esquema de cada país
+  sort_order       smallint not null default 0
+);
+
+create table public.child_vaccines (
+  child_id   uuid not null references public.children (id) on delete cascade,
+  vaccine_id text not null references public.vaccines (id),
+  applied_at date not null,
+  lot        text not null default '' check (char_length(lot) <= 40),
+  place      text not null default '' check (char_length(place) <= 60),
+  created_at timestamptz not null default now(),
+  primary key (child_id, vaccine_id)
+);
+
+-- ---------------------------------------------------------------------------
+-- Hitos del desarrollo: catálogo + logros por hijo/a
+-- ---------------------------------------------------------------------------
+create table public.milestones (
+  id     text primary key,                           -- p. ej. 'le-12-3'
+  domain text not null check (domain in ('mg', 'mf', 'le', 'se', 'co')),
+                                                     -- mg motricidad gruesa · mf fina · le lenguaje · se socioemocional · co cognitivo
+  month  smallint not null check (month >= 0),       -- edad (meses) a la que se espera el hito
+  text   text not null
+);
+create index milestones_month_idx on public.milestones (month, domain);
+
+create table public.child_milestones (
+  child_id     uuid not null references public.children (id) on delete cascade,
+  milestone_id text not null references public.milestones (id),
+  achieved_at  date not null,
+  created_at   timestamptz not null default now(),
+  primary key (child_id, milestone_id)
+);
+
+-- ---------------------------------------------------------------------------
+-- Diario de primeros logros y recuerdos (con foto opcional)
+-- ---------------------------------------------------------------------------
+create table public.journal_entries (
+  id          uuid primary key,
+  child_id    uuid not null references public.children (id) on delete cascade,
+  kind        text not null default 'otro'
+              check (kind in ('sonrisa', 'volteo', 'palabra', 'pasos', 'diente', 'escuela', 'otro')),
+  title       text not null check (char_length(btrim(title)) between 1 and 120),
+  occurred_at date not null,
+  note        text not null default '' check (char_length(note) <= 600),
+  created_at  timestamptz not null default now()
+);
+create index journal_child_date_idx on public.journal_entries (child_id, occurred_at desc);
+
+-- La foto se guarda en la propia base (la app la reduce a ~300 KB antes de subirla).
+-- Si algún día pesan demasiado, se pueden mover a Supabase Storage sin cambiar el resto.
+create table public.journal_photos (
+  entry_id   uuid primary key references public.journal_entries (id) on delete cascade,
+  mime       text not null check (mime = 'image/jpeg'),
+  data       bytea not null check (octet_length(data) between 1 and 2621440),
+  created_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
+-- Row Level Security: activado y SIN políticas = ningún acceso por la API REST pública.
+-- ---------------------------------------------------------------------------
+alter table public.users            enable row level security;
+alter table public.sessions         enable row level security;
+alter table public.rate_events      enable row level security;
+alter table public.children         enable row level security;
+alter table public.measurements     enable row level security;
+alter table public.vaccines         enable row level security;
+alter table public.child_vaccines   enable row level security;
+alter table public.milestones       enable row level security;
+alter table public.child_milestones enable row level security;
+alter table public.journal_entries  enable row level security;
+alter table public.journal_photos   enable row level security;
+
+-- ===== Catálogos =====
+
+-- GENERADO por scripts/generate-seed.mjs — no editar a mano (edita src/data/*.json y ejecuta `npm run db:seed`).
+-- Esquema de vacunación de referencia: revísalo con tu pediatra / autoridad sanitaria; varía por país.
+
+insert into public.vaccines (id, series, name, dose, protects_against, due_month, group_id, optional, sort_order) values
+  ('bcg', 'bcg', 'BCG', 'Dosis única', 'Formas graves de tuberculosis', 0, '0-2m', false, 0),
+  ('hepb-0', 'hepb', 'Hepatitis B', 'Al nacer', 'Hepatitis B', 0, '0-2m', false, 1),
+  ('hexa-1', 'hexa', 'Hexavalente acelular', '1.ª dosis', 'Difteria, tos ferina, tétanos, polio, Hib y hepatitis B', 2, '0-2m', false, 2),
+  ('rota-1', 'rota', 'Rotavirus', '1.ª dosis', 'Diarrea grave por rotavirus', 2, '0-2m', false, 3),
+  ('neumo-1', 'neumo', 'Neumocócica conjugada', '1.ª dosis', 'Neumonía, meningitis y otitis por neumococo', 2, '0-2m', false, 4),
+  ('hexa-2', 'hexa', 'Hexavalente acelular', '2.ª dosis', 'Difteria, tos ferina, tétanos, polio, Hib y hepatitis B', 4, '4m', false, 5),
+  ('rota-2', 'rota', 'Rotavirus', '2.ª dosis', 'Diarrea grave por rotavirus', 4, '4m', false, 6),
+  ('neumo-2', 'neumo', 'Neumocócica conjugada', '2.ª dosis', 'Neumonía, meningitis y otitis por neumococo', 4, '4m', false, 7),
+  ('hexa-3', 'hexa', 'Hexavalente acelular', '3.ª dosis', 'Difteria, tos ferina, tétanos, polio, Hib y hepatitis B', 6, '6m', false, 8),
+  ('influenza-1', 'influenza', 'Influenza', '1.ª dosis', 'Influenza estacional', 6, '6m', false, 9),
+  ('influenza-2', 'influenza', 'Influenza', '2.ª dosis', 'Influenza estacional', 7, '6m', false, 10),
+  ('srp-1', 'srp', 'SRP (triple viral)', '1.ª dosis', 'Sarampión, rubéola y paperas', 12, '12-18m', false, 11),
+  ('neumo-3', 'neumo', 'Neumocócica conjugada', 'Refuerzo', 'Neumonía, meningitis y otitis por neumococo', 12, '12-18m', false, 12),
+  ('varicela', 'varicela', 'Varicela', 'Dosis según esquema', 'Varicela', 12, '12-18m', true, 13),
+  ('hepa', 'hepa', 'Hepatitis A', 'Dosis según esquema', 'Hepatitis A', 12, '12-18m', true, 14),
+  ('hexa-4', 'hexa', 'Hexavalente acelular', 'Refuerzo', 'Difteria, tos ferina, tétanos, polio, Hib y hepatitis B', 18, '12-18m', false, 15),
+  ('dpt-ref', 'dpt', 'DPT', 'Refuerzo', 'Difteria, tos ferina y tétanos', 48, 'escolar', false, 16),
+  ('srp-2', 'srp', 'SRP (triple viral)', '2.ª dosis', 'Sarampión, rubéola y paperas', 72, 'escolar', false, 17),
+  ('vph-1', 'vph', 'VPH', '1.ª dosis', 'Virus del papiloma humano (cáncer de cuello uterino y otros)', 132, 'adolescencia', false, 18),
+  ('vph-2', 'vph', 'VPH', '2.ª dosis', 'Virus del papiloma humano (cáncer de cuello uterino y otros)', 138, 'adolescencia', false, 19),
+  ('tdpa', 'tdpa', 'Tdpa / Td', 'Refuerzo', 'Tétanos, difteria y tos ferina', 144, 'adolescencia', false, 20),
+  ('menacwy', 'menacwy', 'Meningococo ACWY', 'Dosis según esquema', 'Meningitis meningocócica', 132, 'adolescencia', true, 21)
+on conflict (id) do update set
+  series = excluded.series, name = excluded.name, dose = excluded.dose,
+  protects_against = excluded.protects_against, due_month = excluded.due_month,
+  group_id = excluded.group_id, optional = excluded.optional, sort_order = excluded.sort_order;
+
+insert into public.milestones (id, domain, month, text) values
+  ('mg-2-1', 'mg', 2, 'Levanta la cabeza cuando está boca abajo'),
+  ('mg-2-2', 'mg', 2, 'Mueve ambos brazos y ambas piernas'),
+  ('mf-2-1', 'mf', 2, 'Abre las manos brevemente'),
+  ('le-2-1', 'le', 2, 'Hace sonidos además de llorar'),
+  ('le-2-2', 'le', 2, 'Reacciona a los ruidos fuertes'),
+  ('se-2-1', 'se', 2, 'Se calma cuando le hablas o lo cargas'),
+  ('se-2-2', 'se', 2, 'Mira tu cara'),
+  ('se-2-3', 'se', 2, 'Sonríe cuando le hablas o le sonríes'),
+  ('co-2-1', 'co', 2, 'Te sigue con la mirada cuando te mueves'),
+  ('co-2-2', 'co', 2, 'Mira un juguete durante varios segundos'),
+  ('mg-4-1', 'mg', 4, 'Sostiene la cabeza firme, sin apoyo, cuando lo cargas'),
+  ('mg-4-2', 'mg', 4, 'Se apoya en los antebrazos cuando está boca abajo'),
+  ('mf-4-1', 'mf', 4, 'Sostiene un juguete si se lo pones en la mano'),
+  ('mf-4-2', 'mf', 4, 'Se lleva las manos a la boca'),
+  ('mf-4-3', 'mf', 4, 'Golpea los juguetes con el brazo'),
+  ('le-4-1', 'le', 4, 'Hace sonidos como «ooo» y «aaa»'),
+  ('le-4-2', 'le', 4, 'Te responde con sonidos cuando le hablas'),
+  ('le-4-3', 'le', 4, 'Gira la cabeza hacia el sonido de tu voz'),
+  ('se-4-1', 'se', 4, 'Sonríe por iniciativa propia para llamar tu atención'),
+  ('se-4-2', 'se', 4, 'Se ríe a carcajadas'),
+  ('co-4-1', 'co', 4, 'Abre la boca al ver el pecho o el biberón cuando tiene hambre'),
+  ('co-4-2', 'co', 4, 'Mira sus propias manos con interés'),
+  ('mg-6-1', 'mg', 6, 'Rueda de boca abajo a boca arriba'),
+  ('mg-6-2', 'mg', 6, 'Se apoya en las manos para sostenerse sentado'),
+  ('mg-6-3', 'mg', 6, 'Empuja con los brazos estirados cuando está boca abajo'),
+  ('mf-6-1', 'mf', 6, 'Alcanza y agarra el juguete que quiere'),
+  ('le-6-1', 'le', 6, 'Se turna contigo para hacer sonidos'),
+  ('le-6-2', 'le', 6, 'Hace «trompetillas» con la boca'),
+  ('le-6-3', 'le', 6, 'Emite chillidos'),
+  ('se-6-1', 'se', 6, 'Reconoce a las personas conocidas'),
+  ('se-6-2', 'se', 6, 'Le gusta mirarse en el espejo'),
+  ('se-6-3', 'se', 6, 'Se ríe'),
+  ('co-6-1', 'co', 6, 'Se lleva las cosas a la boca para explorarlas'),
+  ('co-6-2', 'co', 6, 'Cierra los labios para mostrar que no quiere más comida'),
+  ('mg-9-1', 'mg', 9, 'Se sienta sin apoyo'),
+  ('mg-9-2', 'mg', 9, 'Pasa a la posición sentada por sí solo'),
+  ('mf-9-1', 'mf', 9, 'Pasa objetos de una mano a la otra'),
+  ('mf-9-2', 'mf', 9, 'Usa los dedos para «rastrillar» la comida hacia él o ella'),
+  ('le-9-1', 'le', 9, 'Balbucea sonidos como «mamama» y «bababa»'),
+  ('le-9-2', 'le', 9, 'Levanta los brazos para que lo carguen'),
+  ('se-9-1', 'se', 9, 'Se muestra tímido o inquieto con los extraños'),
+  ('se-9-2', 'se', 9, 'Muestra varias expresiones: alegría, tristeza, enojo, sorpresa'),
+  ('se-9-3', 'se', 9, 'Se ríe en juegos como «¿dónde está?»'),
+  ('se-9-4', 'se', 9, 'Reacciona cuando te vas (mira, estira los brazos o llora)'),
+  ('co-9-1', 'co', 9, 'Busca un objeto que se le cae y no ve'),
+  ('co-9-2', 'co', 9, 'Golpea dos objetos entre sí'),
+  ('co-9-3', 'co', 9, 'Voltea cuando dices su nombre'),
+  ('mg-12-1', 'mg', 12, 'Se pone de pie agarrándose de algo'),
+  ('mg-12-2', 'mg', 12, 'Camina sosteniéndose de los muebles'),
+  ('mf-12-1', 'mf', 12, 'Agarra pedacitos de comida con el pulgar y el índice (pinza)'),
+  ('mf-12-2', 'mf', 12, 'Bebe de un vaso sin tapa mientras tú lo sostienes'),
+  ('le-12-1', 'le', 12, 'Dice adiós con la mano'),
+  ('le-12-2', 'le', 12, 'Llama a mamá o a papá con algún nombre'),
+  ('le-12-3', 'le', 12, 'Entiende «no» (se detiene un momento al oírlo)'),
+  ('se-12-1', 'se', 12, 'Juega contigo a juegos como las palmaditas'),
+  ('co-12-1', 'co', 12, 'Mete un objeto en un recipiente'),
+  ('co-12-2', 'co', 12, 'Busca un juguete que viste esconder'),
+  ('mg-15-1', 'mg', 15, 'Da algunos pasos por sí solo'),
+  ('mf-15-1', 'mf', 15, 'Se alimenta con los dedos'),
+  ('mf-15-2', 'mf', 15, 'Apila al menos dos objetos pequeños'),
+  ('le-15-1', 'le', 15, 'Intenta decir una o dos palabras además de mamá o papá'),
+  ('le-15-2', 'le', 15, 'Señala para pedir algo o pedir ayuda'),
+  ('le-15-3', 'le', 15, 'Sigue instrucciones que combinan gesto y palabra'),
+  ('se-15-1', 'se', 15, 'Imita a otros niños mientras juega'),
+  ('se-15-2', 'se', 15, 'Te muestra afecto con abrazos, besos o caricias'),
+  ('se-15-3', 'se', 15, 'Aplaude cuando está emocionado'),
+  ('co-15-1', 'co', 15, 'Intenta usar los objetos como corresponde (teléfono, vaso, libro)'),
+  ('mg-18-1', 'mg', 18, 'Camina sin agarrarse de nadie ni de nada'),
+  ('mg-18-2', 'mg', 18, 'Sube y baja del sofá o de una silla sin ayuda'),
+  ('mf-18-1', 'mf', 18, 'Garabatea'),
+  ('mf-18-2', 'mf', 18, 'Intenta usar la cuchara'),
+  ('le-18-1', 'le', 18, 'Dice tres o más palabras además de mamá o papá'),
+  ('le-18-2', 'le', 18, 'Sigue instrucciones de un paso sin gestos'),
+  ('se-18-1', 'se', 18, 'Se aleja de ti, pero revisa que sigas cerca'),
+  ('se-18-2', 'se', 18, 'Señala para mostrarte algo interesante'),
+  ('co-18-1', 'co', 18, 'Te imita en tareas del hogar, como barrer'),
+  ('co-18-2', 'co', 18, 'Juega de forma sencilla con los juguetes, como empujar un carrito'),
+  ('mg-24-1', 'mg', 24, 'Patea una pelota'),
+  ('mg-24-2', 'mg', 24, 'Corre'),
+  ('mg-24-3', 'mg', 24, 'Sube algunos escalones con o sin ayuda'),
+  ('mf-24-1', 'mf', 24, 'Come con cuchara'),
+  ('le-24-1', 'le', 24, 'Dice dos palabras juntas, como «más leche»'),
+  ('le-24-2', 'le', 24, 'Señala al menos dos partes del cuerpo cuando se lo pides'),
+  ('le-24-3', 'le', 24, 'Señala objetos en un libro cuando se lo pides'),
+  ('se-24-1', 'se', 24, 'Nota cuando otros están tristes o lastimados'),
+  ('se-24-2', 'se', 24, 'Te mira para saber cómo reaccionar ante algo nuevo'),
+  ('co-24-1', 'co', 24, 'Sostiene algo con una mano mientras usa la otra'),
+  ('co-24-2', 'co', 24, 'Prueba interruptores, perillas y botones'),
+  ('co-24-3', 'co', 24, 'Juega con más de un juguete a la vez'),
+  ('mg-30-1', 'mg', 30, 'Salta con los dos pies despegando del suelo'),
+  ('mf-30-1', 'mf', 30, 'Gira objetos con las manos (perillas, tapas)'),
+  ('mf-30-2', 'mf', 30, 'Pasa las páginas de un libro de una en una'),
+  ('mf-30-3', 'mf', 30, 'Se quita alguna prenda por sí solo'),
+  ('le-30-1', 'le', 30, 'Dice unas 50 palabras'),
+  ('le-30-2', 'le', 30, 'Nombra objetos de un libro cuando le preguntas'),
+  ('le-30-3', 'le', 30, 'Usa «yo», «mí» o «nosotros»'),
+  ('se-30-1', 'se', 30, 'Juega junto a otros niños y a veces con ellos'),
+  ('se-30-2', 'se', 30, 'Dice «¡mírame!» para mostrarte lo que sabe hacer'),
+  ('co-30-1', 'co', 30, 'Usa objetos para jugar «a que…» (le da de comer a una muñeca)'),
+  ('co-30-2', 'co', 30, 'Resuelve problemas sencillos, como subirse a un banquito'),
+  ('co-30-3', 'co', 30, 'Sigue instrucciones de dos pasos'),
+  ('co-30-4', 'co', 30, 'Reconoce al menos un color'),
+  ('mg-36-1', 'mg', 36, 'Pedalea un triciclo'),
+  ('mf-36-1', 'mf', 36, 'Ensarta objetos grandes, como cuentas o pasta'),
+  ('mf-36-2', 'mf', 36, 'Se pone algunas prendas por sí solo'),
+  ('mf-36-3', 'mf', 36, 'Come con tenedor'),
+  ('le-36-1', 'le', 36, 'Conversa contigo con al menos dos intercambios'),
+  ('le-36-2', 'le', 36, 'Hace preguntas: quién, qué, dónde, por qué'),
+  ('le-36-3', 'le', 36, 'Dice su nombre cuando se lo preguntan'),
+  ('le-36-4', 'le', 36, 'Se le entiende la mayor parte del tiempo'),
+  ('se-36-1', 'se', 36, 'Se calma en unos 10 minutos después de separarse de ti'),
+  ('se-36-2', 'se', 36, 'Se acerca a otros niños y se une a su juego'),
+  ('co-36-1', 'co', 36, 'Dibuja un círculo después de verte hacerlo'),
+  ('co-36-2', 'co', 36, 'Evita tocar objetos calientes cuando le avisas'),
+  ('mg-48-1', 'mg', 48, 'Atrapa una pelota grande la mayoría de las veces'),
+  ('mf-48-1', 'mf', 48, 'Sostiene el lápiz entre los dedos y el pulgar, no con el puño'),
+  ('mf-48-2', 'mf', 48, 'Desabrocha algunos botones'),
+  ('mf-48-3', 'mf', 48, 'Se sirve agua o comida con supervisión'),
+  ('le-48-1', 'le', 48, 'Dice frases de cuatro o más palabras'),
+  ('le-48-2', 'le', 48, 'Cuenta algo que pasó en su día'),
+  ('le-48-3', 'le', 48, 'Dice partes de una canción, cuento o rima'),
+  ('se-48-1', 'se', 48, 'Juega a ser otra cosa: maestro, superhéroe, animal'),
+  ('se-48-2', 'se', 48, 'Consuela a quien está triste o lastimado'),
+  ('co-48-1', 'co', 48, 'Nombra algunos colores'),
+  ('co-48-2', 'co', 48, 'Dice qué sigue en un cuento que conoce'),
+  ('co-48-3', 'co', 48, 'Dibuja una persona con tres o más partes del cuerpo'),
+  ('mg-60-1', 'mg', 60, 'Salta en un solo pie'),
+  ('mf-60-1', 'mf', 60, 'Abrocha algunos botones'),
+  ('mf-60-2', 'mf', 60, 'Escribe algunas letras de su nombre'),
+  ('le-60-1', 'le', 60, 'Cuenta una historia con al menos dos sucesos'),
+  ('le-60-2', 'le', 60, 'Mantiene una conversación de más de tres intercambios'),
+  ('se-60-1', 'se', 60, 'Respeta turnos y reglas en los juegos'),
+  ('se-60-2', 'se', 60, 'Ayuda con tareas sencillas en casa'),
+  ('co-60-1', 'co', 60, 'Cuenta hasta 10'),
+  ('co-60-2', 'co', 60, 'Usa palabras de tiempo: ayer, mañana, noche'),
+  ('co-60-3', 'co', 60, 'Se concentra de 5 a 10 minutos en una actividad'),
+  ('mg-72-1', 'mg', 72, 'Se mantiene en equilibrio sobre un pie unos 10 segundos'),
+  ('mf-72-1', 'mf', 72, 'Escribe su nombre completo con letras legibles'),
+  ('le-72-1', 'le', 72, 'Cuenta un cuento con inicio, desarrollo y final'),
+  ('se-72-1', 'se', 72, 'Mantiene amistades y juega siguiendo reglas'),
+  ('co-72-1', 'co', 72, 'Reconoce los números hasta el 20'),
+  ('mg-84-1', 'mg', 84, 'Anda en bicicleta, con o sin ruedas de apoyo'),
+  ('mf-84-1', 'mf', 84, 'Recorta con tijeras siguiendo una línea'),
+  ('le-84-1', 'le', 84, 'Lee frases y textos cortos con apoyo'),
+  ('se-84-1', 'se', 84, 'Expresa el enojo o la tristeza con palabras en lugar de golpes'),
+  ('co-84-1', 'co', 84, 'Suma y resta con cantidades pequeñas'),
+  ('le-96-1', 'le', 96, 'Lee con fluidez textos de su nivel y explica lo que leyó'),
+  ('se-96-1', 'se', 96, 'Muestra empatía con sus amigos y tolera perder en un juego'),
+  ('co-96-1', 'co', 96, 'Lee la hora en un reloj y sigue instrucciones de varios pasos'),
+  ('mg-144-1', 'mg', 144, 'Practica con regularidad alguna actividad física o deporte'),
+  ('mf-144-1', 'mf', 144, 'Muestra destreza en una actividad manual: dibujo, instrumento, tecnología, manualidades'),
+  ('le-144-1', 'le', 144, 'Argumenta y defiende una opinión con razones'),
+  ('se-144-1', 'se', 144, 'Busca más tiempo con sus amigos y afirma su propia identidad'),
+  ('co-144-1', 'co', 144, 'Razona de forma abstracta y plantea hipótesis'),
+  ('le-168-1', 'le', 168, 'Redacta textos organizados, como resúmenes o ensayos'),
+  ('se-168-1', 'se', 168, 'Expresa opiniones propias y cuestiona las reglas con argumentos'),
+  ('co-168-1', 'co', 168, 'Planifica metas a mediano plazo'),
+  ('se-192-1', 'se', 192, 'Toma decisiones y administra sus responsabilidades con autonomía creciente')
+on conflict (id) do update set domain = excluded.domain, month = excluded.month, text = excluded.text;

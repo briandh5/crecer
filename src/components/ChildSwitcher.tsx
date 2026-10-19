@@ -17,7 +17,7 @@ export const TONE_BG: Record<Tone, string> = {
 
 /** Cambio rápido de perfil: una fila desplazable de chips, pensada para el pulgar. */
 export function ChildSwitcher() {
-  const { state, child, today, actions } = useStore();
+  const { state, child, today, actions, base } = useStore();
 
   return (
     <nav aria-label="Perfiles" className="-mx-4 overflow-x-auto px-4 pb-1 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
@@ -47,7 +47,7 @@ export function ChildSwitcher() {
         })}
         <li>
           <Link
-            href="/perfil/nuevo"
+            href={`${base}/perfil/nuevo`}
             className="flex min-h-[56px] items-center gap-2 rounded-2xl border border-dashed border-sage px-4 text-sm font-bold text-moss transition hover:bg-moss-50"
           >
             <PlusIcon width={18} height={18} /> Agregar

@@ -15,7 +15,7 @@ import Link from "next/link";
 const BLOOD_LABEL = (b: string) => (b === "unknown" ? "No registrado" : b.replace("-", "−"));
 
 export default function GrowthPage() {
-  const { state } = useStore();
+  const { state, base } = useStore();
   const [adding, setAdding] = useState(false);
 
   return (
@@ -41,7 +41,7 @@ export default function GrowthPage() {
             <section className="card space-y-3" aria-labelledby="ficha-title">
               <div className="flex items-center justify-between gap-2">
                 <h2 id="ficha-title" className="text-xl font-semibold">Ficha de nacimiento</h2>
-                <Link href="/perfil" className="text-sm font-bold text-moss hover:underline">Editar</Link>
+                <Link href={`${base}/perfil`} className="text-sm font-bold text-moss hover:underline">Editar</Link>
               </div>
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
                 <dt className="text-ink-muted">Nació el</dt>

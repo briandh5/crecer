@@ -51,6 +51,7 @@ export function PageSkeleton() {
 }
 
 export function EmptyProfiles() {
+  const { base } = useStore();
   return (
     <div className="card mx-auto mt-10 max-w-md text-center">
       <PlantIcon stage="brote" size={96} className="mx-auto" />
@@ -58,7 +59,7 @@ export function EmptyProfiles() {
       <p className="mt-2 text-ink-soft">
         Crea el perfil de tu hijo o hija para empezar a registrar su crecimiento, vacunas y primeros logros.
       </p>
-      <Link href="/perfil/nuevo" className="btn-primary mt-6">
+      <Link href={`${base}/perfil/nuevo`} className="btn-primary mt-6">
         Crear perfil
       </Link>
     </div>

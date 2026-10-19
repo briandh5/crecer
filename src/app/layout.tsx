@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces, Nunito } from "next/font/google";
-import { AppShell } from "@/components/AppShell";
-import { StoreProvider } from "@/lib/store";
 import "./globals.css";
 
 const nunito = Nunito({ subsets: ["latin"], variable: "--font-nunito", display: "swap" });
@@ -22,11 +20,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" className={`${nunito.variable} ${fraunces.variable}`}>
-      <body>
-        <StoreProvider>
-          <AppShell>{children}</AppShell>
-        </StoreProvider>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

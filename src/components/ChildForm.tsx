@@ -28,7 +28,7 @@ const TONES: { id: Tone; label: string }[] = [
 /** Ficha de crecimiento inicial: sirve para crear un perfil nuevo o editar uno existente. */
 export function ChildForm({ child }: { child?: Child }) {
   const router = useRouter();
-  const { today, actions } = useStore();
+  const { today, actions, base } = useStore();
   const editing = !!child;
 
   const [name, setName] = useState(child?.name ?? "");
@@ -70,10 +70,10 @@ export function ChildForm({ child }: { child?: Child }) {
 
     if (child) {
       actions.updateChild(child.id, { ...data, ...(tone ? { tone } : {}) });
-      router.push("/");
+      router.push(base);
     } else {
       actions.addChild({ ...data, tone });
-      router.push("/");
+      router.push(base);
     }
   }
 
@@ -167,7 +167,7 @@ export function ChildForm({ child }: { child?: Child }) {
                   className="btn-danger"
                   onClick={() => {
                     actions.removeChild(child.id);
-                    router.push("/");
+                    router.push(base);
                   }}
                 >
                   Sí, borrar todo el perfil

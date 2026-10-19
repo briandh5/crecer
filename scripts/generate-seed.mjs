@@ -1,6 +1,6 @@
 // Genera supabase/seed.sql a partir de los catálogos JSON que también usa la app,
 // para que el esquema de vacunas y los hitos tengan una sola fuente de verdad.
-//   npm run db:seed
+//   npm run db:seed   → supabase/seed.sql (solo catálogos) y supabase/setup.sql (esquema + catálogos)
 import { readFileSync, writeFileSync } from "node:fs";
 
 const root = new URL("../", import.meta.url);
@@ -36,4 +36,9 @@ on conflict (id) do update set domain = excluded.domain, month = excluded.month,
 `;
 
 writeFileSync(new URL("supabase/seed.sql", root), sql);
-console.log(`supabase/seed.sql: ${vaccines.length} vacunas, ${milestones.length} hitos`);
+
+// setup.sql = esquema + catálogos en un solo archivo, para pegarlo de una vez en el SQL Editor de Supabase.
+const schema = readFileSync(new URL("supabase/migrations/0001_schema.sql", root), "utf8");
+writeFileSync(new URL("supabase/setup.sql", root), `${schema}\n-- ===== Catálogos =====\n\n${sql}`);
+
+console.log(`supabase/seed.sql y setup.sql: ${vaccines.length} vacunas, ${milestones.length} hitos`);

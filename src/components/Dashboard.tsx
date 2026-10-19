@@ -37,7 +37,7 @@ export function Dashboard() {
 }
 
 function DashboardBody({ child }: { child: Child }) {
-  const { state, today } = useStore();
+  const { state, today, base } = useStore();
   const [measuring, setMeasuring] = useState(false);
 
   const d = useMemo(() => {
@@ -103,7 +103,7 @@ function DashboardBody({ child }: { child: Child }) {
               <button type="button" className="btn-primary" onClick={() => setMeasuring(true)}>
                 <PlusIcon width={18} height={18} /> Registrar medición
               </button>
-              <Link href="/diario" className="btn-soft">
+              <Link href={`${base}/diario`} className="btn-soft">
                 <PlusIcon width={18} height={18} /> Nuevo recuerdo
               </Link>
             </div>
@@ -123,7 +123,7 @@ function DashboardBody({ child }: { child: Child }) {
 
       {/* Resumen */}
       <section aria-label="Resumen" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryTile title="Próxima vacuna" href="/vacunas" icon={<ShieldIcon width={18} height={18} />} cta="Ver cartilla">
+        <SummaryTile title="Próxima vacuna" href={`${base}/vacunas`} icon={<ShieldIcon width={18} height={18} />} cta="Ver cartilla">
           {d.nextVac && nextVacDue && nextVacStatus ? (
             <>
               <p className="font-display text-xl font-semibold leading-snug text-ink">{d.nextVac.name}</p>
@@ -147,7 +147,7 @@ function DashboardBody({ child }: { child: Child }) {
           )}
         </SummaryTile>
 
-        <SummaryTile title="Último hito" href="/hitos" icon={<SproutIcon width={18} height={18} />} cta="Ver hitos">
+        <SummaryTile title="Último hito" href={`${base}/hitos`} icon={<SproutIcon width={18} height={18} />} cta="Ver hitos">
           {d.lastMilestone ? (
             <>
               <p className="font-display text-lg font-semibold leading-snug text-ink">{d.lastMilestone.def.text}</p>
@@ -161,7 +161,7 @@ function DashboardBody({ child }: { child: Child }) {
           </p>
         </SummaryTile>
 
-        <SummaryTile title="Última medición" href="/crecimiento" icon={<ChartIcon width={18} height={18} />} cta="Ver curva">
+        <SummaryTile title="Última medición" href={`${base}/crecimiento`} icon={<ChartIcon width={18} height={18} />} cta="Ver curva">
           {d.latest ? (
             <>
               <p className="font-display text-xl font-semibold text-ink tabular-nums">
@@ -182,7 +182,7 @@ function DashboardBody({ child }: { child: Child }) {
           )}
         </SummaryTile>
 
-        <SummaryTile title="Último recuerdo" href="/diario" icon={<BookIcon width={18} height={18} />} cta="Abrir diario">
+        <SummaryTile title="Último recuerdo" href={`${base}/diario`} icon={<BookIcon width={18} height={18} />} cta="Abrir diario">
           {d.lastEntry ? (
             <>
               <p className="font-display text-lg font-semibold leading-snug text-ink">{d.lastEntry.title}</p>
@@ -200,7 +200,7 @@ function DashboardBody({ child }: { child: Child }) {
       <section className="card" aria-labelledby="curve-title">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 id="curve-title" className="text-xl font-semibold">Curva de crecimiento</h2>
-          <Link href="/crecimiento" className="text-sm font-bold text-moss hover:underline">Ver detalle →</Link>
+          <Link href={`${base}/crecimiento`} className="text-sm font-bold text-moss hover:underline">Ver detalle →</Link>
         </div>
         <GrowthChart child={child} measurements={state.measurements} compact />
       </section>

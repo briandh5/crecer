@@ -78,4 +78,6 @@ export interface JournalEntry {
   title: string;
   occurredAt: string;
   note: string;
+  /** La foto se pide a /api/photos/<id>; solo existe en cuentas (no en el modo demo). */
+  hasPhoto?: boolean;
 }
