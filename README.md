@@ -41,6 +41,8 @@ Sirve cualquier SMTP. Con Gmail: activa la verificación en dos pasos y crea una
 | `SMTP_USER` / `SMTP_PASS` | tu correo y la contraseña de aplicación |
 | `MAIL_FROM` | opcional, p. ej. `Crecer <tu-cuenta@gmail.com>` |
 
+**Comprobar que todo quedó bien:** abre `https://tu-sitio/api/health`. Debe decir `"ok": true`; si no, el campo `hint` indica qué falta (variable, migración, conexión). No muestra secretos.
+
 Sin `DATABASE_URL` la app arranca igual: la portada avisa que las cuentas aún no están activas y `/demo` funciona. Sin `SMTP_HOST`, las cuentas funcionan pero «Olvidaste tu contraseña» avisa que no está activado.
 
 ## Cómo funciona
