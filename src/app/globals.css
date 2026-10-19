@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-linen font-sans text-ink antialiased;
+    background-image:
+      radial-gradient(60rem 30rem at 100% -10%, rgba(135, 169, 107, 0.16), transparent 60%),
+      radial-gradient(40rem 24rem at -10% 20%, rgba(238, 220, 130, 0.18), transparent 60%);
+    background-attachment: fixed;
+  }
+  h1, h2, h3 {
+    @apply font-display text-moss;
+  }
+  :focus-visible {
+    outline: 3px solid #559048;
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+  /* Evita el zoom automático de iOS al enfocar campos. */
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-3xl border border-linen-200/80 bg-white/85 p-5 shadow-soft backdrop-blur-sm sm:p-6;
+  }
+  .btn {
+    @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-2xl px-5 py-2.5 text-sm font-bold transition
+      active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-moss text-white shadow-soft hover:bg-moss-500;
+  }
+  .btn-soft {
+    @apply btn bg-moss-50 text-moss hover:bg-moss-100;
+  }
+  .btn-ghost {
+    @apply btn text-ink-soft hover:bg-linen-100;
+  }
+  .btn-danger {
+    @apply btn bg-terracotta-50 text-terracotta-700 hover:bg-terracotta-100;
+  }
+  .field {
+    @apply w-full min-h-[44px] rounded-2xl border border-sand-200 bg-white px-4 py-2.5 text-ink shadow-inset placeholder:text-ink-muted/70
+      focus:border-sage focus:outline-none focus:ring-4 focus:ring-sage/25;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-bold text-ink-soft;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

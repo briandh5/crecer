@@ -1,0 +1,22 @@
+// Mismos tonos que tailwind.config.ts, para SVG y Recharts (que necesitan valores hexadecimales).
+export const palette = {
+  linen: "#FDFBF7",
+  linen100: "#F8F3EA",
+  linen200: "#EFE7D8",
+  moss: "#2D5A27",
+  moss400: "#559048",
+  moss100: "#DDEAD8",
+  sage: "#87A96B",
+  sage200: "#CFDFBC",
+  sage500: "#6C8F4F",
+  straw: "#EEDC82",
+  straw400: "#DEC654",
+  straw500: "#C4AA2E",
+  sand: "#D2B48C",
+  sand400: "#BC9A6C",
+  sand700: "#6E5532",
+  terracotta: "#E2725B",
+  terracotta600: "#B8503B",
+  ink: "#26301F",
+  inkMuted: "#6F7B66",
+} as const;
