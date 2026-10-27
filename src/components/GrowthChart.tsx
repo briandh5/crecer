@@ -255,7 +255,8 @@ function ChartTooltip({
   label: string;
 }) {
   if (!active || !payload?.length) return null;
-  const row = payload[0].payload as Row | undefined;
+  // Recharts también entrega puntos de la línea de referencia (sin fecha ni medición): solo se muestran las mediciones.
+  const row = payload.map((p) => p.payload as Partial<Row> | undefined).find((r): r is Row => typeof r?.date === "string");
   if (!row) return null;
   const diff = row.ref == null ? null : row.value - row.ref;
   return (
