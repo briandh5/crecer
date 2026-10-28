@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AuthPanel } from "@/components/AuthPanel";
 import { PlantIcon } from "@/components/PlantIcon";
 import { isDbConfigured } from "@/server/db";
+import { isGoogleConfigured } from "@/server/google";
 import { getSessionUser } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +15,15 @@ const POINTS = [
   "Diario de primeros logros, con fotos",
 ];
 
-export default async function Landing() {
+const GOOGLE_ERRORS: Record<string, string> = {
+  cancelado: "Cancelaste el inicio con Google. Puedes intentarlo de nuevo o entrar con tu usuario.",
+  error: "No se pudo entrar con Google. Inténtalo de nuevo.",
+  limite: "Demasiados registros desde este lugar. Inténtalo más tarde.",
+  off: "El inicio con Google todavía no está activado en este sitio.",
+};
+
+export default async function Landing({ searchParams }: { searchParams: Promise<{ google?: string }> }) {
+  const { google } = await searchParams;
   const configured = isDbConfigured();
   const session = configured ? await getSessionUser() : null;
   if (session) redirect(`/${session.username}`);
@@ -42,7 +51,7 @@ export default async function Landing() {
       </section>
 
       {configured ? (
-        <AuthPanel />
+        <AuthPanel google={isGoogleConfigured()} initialError={google ? (GOOGLE_ERRORS[google] ?? null) : null} />
       ) : (
         <div className="card max-w-md space-y-2">
           <h2 className="text-xl font-semibold">Cuentas próximamente</h2>

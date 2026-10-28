@@ -5,6 +5,7 @@ App n.º 3 del reto de 100 apps. Next.js 15 (App Router) + Tailwind CSS 3 + Type
 ## Qué incluye
 
 - **Cuentas**: usuario, correo y contraseña. Cada perfil vive en `https://tu-sitio/<usuario>` y se puede abrir desde cualquier dispositivo. Se entra con el usuario o con el correo.
+- **Entrar con Google** (opcional): botón «Continuar con Google»; si el correo ya tiene cuenta, entra en ella; si no, la crea.
 - **Recuperación de contraseña** por correo y página **Mi cuenta** (cambiar correo y contraseña).
 - **Dashboard** con selector de hijos (cambio rápido), anillos de crecimiento, próxima vacuna, último hito, última medición y curva compacta.
 - **Crecimiento**: ficha de nacimiento, historial y gráfica interactiva de peso y talla con la mediana de referencia de la OMS (0–5 años).
@@ -31,7 +32,14 @@ La app necesita una base PostgreSQL y, para recuperar contraseñas, una cuenta d
 
 Sirve cualquier SMTP. Con Gmail: activa la verificación en dos pasos y crea una *contraseña de aplicación* en https://myaccount.google.com/apppasswords (16 letras; no es tu contraseña normal). Gmail permite unos 500 envíos al día; para más volumen o mejor entrega usa Brevo, Resend u otro.
 
-**3. Variables en Vercel** (*Settings → Environment Variables*, en Production y Preview) y luego **Redeploy**:
+**3. Google (opcional, para «Continuar con Google»)**
+
+1. https://console.cloud.google.com → crea un proyecto (p. ej. «Crecer»).
+2. **APIs y servicios → Pantalla de consentimiento de OAuth** (o «Google Auth Platform → Branding»): tipo *Externo*, nombre «Crecer», tu correo. En **Público** pulsa **Publicar app** para que cualquiera pueda entrar (si se queda en «Prueba», solo los correos que añadas como usuarios de prueba).
+3. **Credenciales → Crear credenciales → ID de cliente de OAuth** → *Aplicación web*. En **URI de redireccionamiento autorizados** pon `https://crecer-two.vercel.app/api/auth/google/callback` (tu `APP_URL` + `/api/auth/google/callback`).
+4. Copia el **ID de cliente** y el **Secreto del cliente** a `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`.
+
+**4. Variables en Vercel** (*Settings → Environment Variables*, en Production y Preview) y luego **Redeploy**:
 
 | Variable | Valor |
 | --- | --- |
@@ -40,6 +48,7 @@ Sirve cualquier SMTP. Con Gmail: activa la verificación en dos pasos y crea una
 | `SMTP_HOST` / `SMTP_PORT` | `smtp.gmail.com` / `465` |
 | `SMTP_USER` / `SMTP_PASS` | tu correo y la contraseña de aplicación |
 | `MAIL_FROM` | opcional, p. ej. `Crecer <tu-cuenta@gmail.com>` |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | opcionales: las credenciales de Google del paso 3 |
 
 **Comprobar que todo quedó bien:** abre `https://tu-sitio/api/health`. Debe decir `"ok": true`; si no, el campo `hint` indica qué falta (variable, migración, conexión). No muestra secretos.
 
@@ -50,6 +59,7 @@ Sin `DATABASE_URL` la app arranca igual: la portada avisa que las cuentas aún n
 - **Contraseñas**: scrypt con sal por usuario; nunca se guardan en claro.
 - **Sesión**: cookie `httpOnly` + `SameSite=Lax` con un token aleatorio; en la base solo se guarda su hash. Dura 30 días y se invalida al salir.
 - **Privacidad**: el perfil `/<usuario>` solo se abre con la sesión de su dueño; otra cuenta ve un aviso, sin datos. Cada operación del servidor comprueba que la fila sea del usuario que la pide.
+- **Google**: flujo OAuth «authorization code» con PKCE y `state` en cookie `httpOnly` (anti-CSRF). Solo se acepta un correo que Google marque como verificado; la cuenta se reconoce por ese correo, así que no hace falta cambiar la base. Las cuentas nuevas reciben un usuario sacado del correo (con números si ya existe) y una contraseña aleatoria: si quieren entrar también con contraseña, usan «¿Olvidaste tu contraseña?».
 - **Recuperación**: el enlace llega al correo de la cuenta, vale 60 minutos, se usa una sola vez (en la base solo se guarda su hash), anula los enlaces anteriores y, al usarse, cierra las sesiones abiertas. La respuesta es idéntica exista o no la cuenta (no revela quién está registrado). Máximo 3 correos por hora y cuenta y 5 solicitudes por hora y IP.
 - **Protecciones**: máximo 10 fallos de login cada 15 min por usuario (30 por IP), 10 registros por hora por IP, comprobación de `Origin` (CSRF), validación de todos los datos con zod, fotos solo JPEG reales de ≤2,5 MB.
 - **RLS**: todas las tablas tienen RLS activado y sin políticas, así que la API REST pública de Supabase no puede leer nada; la app accede solo desde el servidor con `DATABASE_URL`.

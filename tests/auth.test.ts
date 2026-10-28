@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { hashPassword, hashToken, newSessionToken, validateEmail, validatePassword, validateUsername, verifyPassword } from "../src/server/auth-core.ts";
+import { hashPassword, hashToken, newSessionToken, usernameFromEmail, validateEmail, validatePassword, validateUsername, verifyPassword } from "../src/server/auth-core.ts";
 
 test("usuarios: normaliza y valida", () => {
   assert.deepEqual(validateUsername("  BrianDH444 "), { ok: true, value: "briandh444" });
@@ -49,4 +49,14 @@ test("correo: normaliza y valida", () => {
   for (const bad of ["", "sin-arroba", "a@b", "a b@c.com", "@c.com", "a@.com".replace(".com", ""), "a@@b.com", null, 7, `${"x".repeat(250)}@c.com`]) {
     assert.equal(validateEmail(bad).ok, false, `debería rechazar ${JSON.stringify(bad)}`);
   }
+});
+
+test("Google: usuario a partir del correo", () => {
+  assert.equal(usernameFromEmail("Brian.Hawkins92@gmail.com"), "brianhawkins92");
+  assert.equal(usernameFromEmail("josé_ñuñez@x.mx"), "jose_nunez");
+  assert.equal(usernameFromEmail("ab@x.com"), "familia", "demasiado corto");
+  assert.equal(usernameFromEmail("admin@x.com"), "familia", "reservado");
+  assert.equal(usernameFromEmail("__x.y.z@x.com"), "xyz");
+  assert.equal(usernameFromEmail(`${"a".repeat(40)}@x.com`).length, 24);
+  for (const e of ["Brian.Hawkins92@gmail.com", "josé_ñuñez@x.mx", "ab@x.com", "--@x.com"]) assert.equal(validateUsername(usernameFromEmail(e)).ok, true, e);
 });

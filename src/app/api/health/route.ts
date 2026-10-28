@@ -1,5 +1,6 @@
 import { isDbConfigured, query } from "@/server/db";
 import { errorCode, json } from "@/server/http";
+import { isGoogleConfigured } from "@/server/google";
 import { isMailConfigured } from "@/server/mail";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ export async function GET() {
     smtpHostSet: isMailConfigured(),
     smtpUserSet: !!process.env.SMTP_USER,
     smtpPassSet: !!process.env.SMTP_PASS,
+    googleSet: isGoogleConfigured(),
   };
   if (!isDbConfigured()) return json({ ok: false, ...out, hint: "Falta DATABASE_URL en Vercel (y un Redeploy)." });
 
