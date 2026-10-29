@@ -8,6 +8,7 @@ import type { Child, JournalEntry, JournalKind } from "@/lib/types";
 import { preparePhoto, PhotoError } from "@/lib/image";
 import { PlusIcon, TrashIcon } from "./Icons";
 import { Modal } from "./Modal";
+import { PhotoViewer } from "./PhotoViewer";
 
 export const KINDS: { id: JournalKind; label: string; title: string; dot: string }[] = [
   { id: "sonrisa", label: "Primera sonrisa", title: "Primera sonrisa", dot: "bg-straw" },
@@ -29,6 +30,7 @@ export function Journal({ child }: { child: Child }) {
   const [error, setError] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [reading, setReading] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<string | null>(null);
   const [photo, setPhoto] = useState<{ blob: Blob; preview: string } | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -57,6 +59,8 @@ export function Journal({ child }: { child: Child }) {
   );
 
   const readingEntry = entries.find((e) => e.id === reading) ?? null;
+  const viewingEntry = entries.find((e) => e.id === viewing) ?? null;
+  const viewingPhoto = viewingEntry && photoUrl(viewingEntry);
 
   function pickKind(id: JournalKind) {
     setKind(id);
@@ -170,6 +174,7 @@ export function Journal({ child }: { child: Child }) {
                 onCancelDelete={() => setConfirmId(null)}
                 onDelete={() => { actions.removeJournal(e.id); setConfirmId(null); }}
                 onOpen={() => setReading(e.id)}
+                onPhoto={() => setViewing(e.id)}
               />
             </li>
           ))}
@@ -177,8 +182,13 @@ export function Journal({ child }: { child: Child }) {
       )}
 
       <Modal wide open={!!readingEntry} onClose={() => setReading(null)} title={readingEntry ? readingEntry.title : "Carta"}>
-        {readingEntry && <Letter child={child} entry={readingEntry} photo={photoUrl(readingEntry)} full />}
+        {readingEntry && <Letter child={child} entry={readingEntry} photo={photoUrl(readingEntry)} onPhoto={() => setViewing(readingEntry.id)} full />}
       </Modal>
+
+      <PhotoViewer
+        photo={viewingEntry && viewingPhoto ? { src: viewingPhoto, title: viewingEntry.title, date: formatDate(viewingEntry.occurredAt), note: viewingEntry.note } : null}
+        onClose={() => setViewing(null)}
+      />
     </div>
   );
 }
@@ -196,7 +206,7 @@ function whenYouWere(child: Child, occurredAt: string) {
 }
 
 /** La carta: foto con cinta, sello de fecha y edad, título y la nota en letra manuscrita sobre papel de renglones. */
-function Letter({ child, entry, photo, full = false }: { child: Child; entry: JournalEntry; photo: string | null; full?: boolean }) {
+function Letter({ child, entry, photo, onPhoto, full = false }: { child: Child; entry: JournalEntry; photo: string | null; onPhoto(): void; full?: boolean }) {
   const kind = KINDS.find((k) => k.id === entry.kind) ?? KINDS[KINDS.length - 1];
   return (
     <div className="space-y-4">
@@ -204,13 +214,20 @@ function Letter({ child, entry, photo, full = false }: { child: Child; entry: Jo
         <div className="relative mx-auto w-full max-w-md pt-3">
           <span className="washi" aria-hidden />
           <div className="rotate-[-1.2deg] rounded-xl bg-white p-2.5 pb-8 shadow-lift">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={photo}
-              alt={`Foto del recuerdo: ${entry.title}`}
-              loading="lazy"
-              className={`w-full rounded-md bg-linen-100 ${full ? "max-h-[60dvh] object-contain" : "aspect-[4/3] object-cover"}`}
-            />
+            <button
+              type="button"
+              onClick={onPhoto}
+              aria-label={`Ver foto en grande: ${entry.title}`}
+              className="block w-full cursor-zoom-in overflow-hidden rounded-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sage/40"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={photo}
+                alt={`Foto del recuerdo: ${entry.title}`}
+                loading="lazy"
+                className={`w-full bg-linen-100 transition duration-300 hover:scale-[1.02] ${full ? "max-h-[60dvh] object-contain" : "aspect-[4/3] object-cover"}`}
+              />
+            </button>
             <p className="mt-2 text-center font-hand text-xl text-ink-soft">{formatDate(entry.occurredAt)}</p>
           </div>
         </div>
@@ -244,11 +261,12 @@ function LetterCard(props: {
   onCancelDelete(): void;
   onDelete(): void;
   onOpen(): void;
+  onPhoto(): void;
 }) {
   const { child, entry, photo, confirming } = props;
   return (
     <article className="relative rounded-[1.75rem] border border-sand-100 bg-[#fffaf1] p-5 shadow-soft transition hover:rotate-0 hover:shadow-lift sm:p-7">
-      <Letter child={child} entry={entry} photo={photo} />
+      <Letter child={child} entry={entry} photo={photo} onPhoto={props.onPhoto} />
       <div className="mt-4 flex items-center justify-between gap-2">
         <button type="button" className="btn-soft !min-h-[40px]" onClick={props.onOpen}>Abrir carta</button>
         {confirming ? (
