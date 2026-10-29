@@ -1,6 +1,7 @@
 "use client";
 
 import { AccountSettings } from "@/components/AccountSettings";
+import { FamilySettings } from "@/components/FamilySettings";
 import { PageSkeleton } from "@/components/Page";
 import { useStore } from "@/lib/store";
 
@@ -15,6 +16,7 @@ export default function AccountPage() {
           Usuario: <strong className="text-ink">@{username}</strong>
         </p>
       </div>
+      <FamilySettings />
       <AccountSettings />
     </div>
   );

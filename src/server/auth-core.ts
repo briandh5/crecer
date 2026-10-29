@@ -109,3 +109,7 @@ export function usernameFromEmail(email: string): string {
     .slice(0, 24);
   return validateUsername(local).ok ? local : "familia";
 }
+
+/** Solo rutas de este mismo sitio («/algo», nunca «//otro-sitio» ni direcciones completas). */
+export const safeNext = (next: string | null | undefined) =>
+  typeof next === "string" && next.length <= 500 && /^\/[^/\\]/.test(next) ? next : null;

@@ -1,6 +1,7 @@
 import type { DataState } from "@/lib/demo";
 import type { BloodType, Child, JournalEntry, JournalKind, Measurement, Sex, Tone } from "@/lib/types";
 import { query } from "./db";
+import { familyOwners } from "./family";
 
 interface ChildRow {
   id: string; name: string; birth_date: string; sex: Sex; tone: Tone; blood_type: BloodType; allergies: string[]; notes: string;
@@ -14,35 +15,35 @@ interface JournalRow {
   id: string; child_id: string; kind: JournalKind; title: string; occurred_at: string; note: string; has_photo: boolean;
 }
 
-/** Todos los datos de una cuenta, con la forma que usa la app en el navegador. */
+/** Todos los datos de una cuenta (y de su familia), con la forma que usa la app en el navegador. */
 export async function loadState(userId: string): Promise<DataState> {
   const [children, measurements, vaccines, milestones, journal] = await Promise.all([
     query<ChildRow>(
       `select id, name, birth_date, sex, tone, blood_type, allergies, notes, birth_weight_kg, birth_length_cm, birth_head_cm
-         from public.children where owner_id = $1 order by created_at, id`,
+         from public.children where owner_id in ${familyOwners("$1")} order by created_at, id`,
       [userId],
     ),
     query<MeasurementRow>(
       `select m.id, m.child_id, m.measured_at, m.weight_kg, m.height_cm, m.head_cm, m.note, m.source
          from public.measurements m join public.children c on c.id = m.child_id
-        where c.owner_id = $1 order by m.measured_at, m.created_at`,
+        where c.owner_id in ${familyOwners("$1")} order by m.measured_at, m.created_at`,
       [userId],
     ),
     query<{ child_id: string; vaccine_id: string; applied_at: string; lot: string; place: string }>(
       `select v.child_id, v.vaccine_id, v.applied_at, v.lot, v.place
-         from public.child_vaccines v join public.children c on c.id = v.child_id where c.owner_id = $1`,
+         from public.child_vaccines v join public.children c on c.id = v.child_id where c.owner_id in ${familyOwners("$1")}`,
       [userId],
     ),
     query<{ child_id: string; milestone_id: string; achieved_at: string }>(
       `select m.child_id, m.milestone_id, m.achieved_at
-         from public.child_milestones m join public.children c on c.id = m.child_id where c.owner_id = $1`,
+         from public.child_milestones m join public.children c on c.id = m.child_id where c.owner_id in ${familyOwners("$1")}`,
       [userId],
     ),
     query<JournalRow>(
       `select j.id, j.child_id, j.kind, j.title, j.occurred_at, j.note,
               exists (select 1 from public.journal_photos p where p.entry_id = j.id) as has_photo
          from public.journal_entries j join public.children c on c.id = j.child_id
-        where c.owner_id = $1 order by j.occurred_at, j.created_at`,
+        where c.owner_id in ${familyOwners("$1")} order by j.occurred_at, j.created_at`,
       [userId],
     ),
   ]);

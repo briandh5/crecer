@@ -63,3 +63,29 @@ export function resetEmail(opts: { to: string; username: string; link: string; m
 </div></body></html>`;
   return { to, subject: "Restablece tu contraseña de Crecer", text, html };
 }
+
+/** Correo de «te invitaron a la familia». */
+export function inviteEmail(opts: { to: string; inviter: string; link: string; days: number }): Mail {
+  const { to, inviter, link, days } = opts;
+  const text = [
+    "Hola,",
+    "",
+    `@${inviter} te invitó a su familia en Crecer para que juntos acompañen el crecimiento de sus hijos:`,
+    "podrás ver y añadir mediciones, vacunas, hitos y recuerdos.",
+    "",
+    `Abre este enlace para aceptar (vale ${days} días). Si aún no tienes cuenta, podrás crearla ahí mismo con este correo (${to}):`,
+    "",
+    link,
+    "",
+    "Si no conoces a quien te invita, ignora este mensaje.",
+  ].join("\n");
+  const html = `<!doctype html><html lang="es"><body style="margin:0;background:#FDFBF7;font-family:Arial,Helvetica,sans-serif;color:#26301F">
+<div style="max-width:520px;margin:0 auto;padding:32px 24px">
+  <p style="font-size:24px;font-weight:bold;color:#2D5A27;margin:0 0 24px">Crecer</p>
+  <p style="font-size:16px;line-height:1.5"><strong>@${esc(inviter)}</strong> te invitó a su familia en Crecer para que juntos acompañen el crecimiento de sus hijos: podrás ver y añadir mediciones, vacunas, hitos y recuerdos.</p>
+  <p style="margin:28px 0"><a href="${esc(link)}" style="background:#2D5A27;color:#ffffff;text-decoration:none;font-weight:bold;padding:14px 24px;border-radius:14px;display:inline-block">Aceptar la invitación</a></p>
+  <p style="font-size:14px;line-height:1.5;color:#4C5A43">El enlace vale ${days} días. Si aún no tienes cuenta, podrás crearla ahí mismo con este correo (<strong>${esc(to)}</strong>). Si el botón no funciona, copia esta dirección en tu navegador:<br><span style="word-break:break-all">${esc(link)}</span></p>
+  <p style="font-size:14px;line-height:1.5;color:#4C5A43">Si no conoces a quien te invita, ignora este mensaje.</p>
+</div></body></html>`;
+  return { to, subject: `@${inviter} te invitó a su familia en Crecer`, text, html };
+}

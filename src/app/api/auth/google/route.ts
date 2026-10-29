@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { googleAuthRequest, googleRedirectUri, isGoogleConfigured, OAUTH_COOKIE } from "@/server/google";
+import { googleAuthRequest, googleRedirectUri, isGoogleConfigured, OAUTH_COOKIE, safeNext } from "@/server/google";
 import { appUrl } from "@/server/http";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const base = appUrl(req);
   if (!isGoogleConfigured()) return NextResponse.redirect(`${base}/?google=off`);
-  const { url, cookie } = googleAuthRequest(googleRedirectUri(base));
+  const next = safeNext(new URL(req.url).searchParams.get("next"));
+  const { url, cookie } = googleAuthRequest(googleRedirectUri(base), next);
   const res = NextResponse.redirect(url);
   res.cookies.set(OAUTH_COOKIE, cookie, {
     httpOnly: true,

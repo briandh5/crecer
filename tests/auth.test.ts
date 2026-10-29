@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { hashPassword, hashToken, newSessionToken, usernameFromEmail, validateEmail, validatePassword, validateUsername, verifyPassword } from "../src/server/auth-core.ts";
+import { hashPassword, hashToken, newSessionToken, safeNext, usernameFromEmail, validateEmail, validatePassword, validateUsername, verifyPassword } from "../src/server/auth-core.ts";
 
 test("usuarios: normaliza y valida", () => {
   assert.deepEqual(validateUsername("  BrianDH444 "), { ok: true, value: "briandh444" });
@@ -59,4 +59,11 @@ test("Google: usuario a partir del correo", () => {
   assert.equal(usernameFromEmail("__x.y.z@x.com"), "xyz");
   assert.equal(usernameFromEmail(`${"a".repeat(40)}@x.com`).length, 24);
   for (const e of ["Brian.Hawkins92@gmail.com", "josé_ñuñez@x.mx", "ab@x.com", "--@x.com"]) assert.equal(validateUsername(usernameFromEmail(e)).ok, true, e);
+});
+
+test("volver después de entrar: solo rutas de este sitio", () => {
+  assert.equal(safeNext("/invitacion?token=abc"), "/invitacion?token=abc");
+  for (const bad of ["//evil.com", "/\\evil.com", "https://evil.com", "evil.com", "/", "", null, undefined, `/${"a".repeat(600)}`]) {
+    assert.equal(safeNext(bad), null, String(bad));
+  }
 });
