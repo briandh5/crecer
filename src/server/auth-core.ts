@@ -96,3 +96,16 @@ export const RESET_MINUTES = 60;
 
 /** Token aleatorio de un solo uso (para enlaces de correo). Se envía tal cual y en la base solo se guarda su hash. */
 export const newResetToken = newSessionToken;
+
+/** Primera propuesta de usuario para una cuenta creada con Google: la parte del correo antes de «@», limpia. */
+export function usernameFromEmail(email: string): string {
+  const local = email
+    .split("@")[0]
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9_-]/g, "")
+    .replace(/^[_-]+/, "")
+    .slice(0, 24);
+  return validateUsername(local).ok ? local : "familia";
+}

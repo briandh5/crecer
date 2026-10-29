@@ -10,19 +10,30 @@ interface Props {
   lockUsername?: boolean;
   allowRegister?: boolean;
   defaultTab?: "login" | "register";
+  /** Muestra «Continuar con Google» (solo si el sitio tiene configuradas las claves de Google). */
+  google?: boolean;
+  /** Aviso con el que se abre la pantalla (p. ej. si falló el inicio con Google). */
+  initialError?: string | null;
 }
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9_-]{2,29}$/;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-export function AuthPanel({ initialUsername = "", lockUsername = false, allowRegister = true, defaultTab = "login" }: Props) {
+export function AuthPanel({
+  initialUsername = "",
+  lockUsername = false,
+  allowRegister = true,
+  defaultTab = "login",
+  google = false,
+  initialError = null,
+}: Props) {
   const [tab, setTab] = useState<"login" | "register">(lockUsername ? "login" : defaultTab);
   const [username, setUsername] = useState(initialUsername);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [show, setShow] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
   const [busy, setBusy] = useState(false);
   const [host, setHost] = useState("");
   useEffect(() => setHost(window.location.host), []);
@@ -91,6 +102,19 @@ export function AuthPanel({ initialUsername = "", lockUsername = false, allowReg
             </button>
           ))}
         </div>
+      )}
+
+      {google && (
+        <>
+          {/* Enlace normal (no fetch): Google tiene que abrirse como página completa. */}
+          <a href="/api/auth/google" className="btn-soft w-full gap-3">
+            <GoogleIcon />
+            Continuar con Google
+          </a>
+          <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-wide text-ink-muted" aria-hidden>
+            <span className="h-px flex-1 bg-linen-200" /> o con tu usuario <span className="h-px flex-1 bg-linen-200" />
+          </div>
+        </>
       )}
 
       <form onSubmit={submit} className="space-y-4" noValidate>
@@ -174,5 +198,16 @@ export function AuthPanel({ initialUsername = "", lockUsername = false, allowReg
         )}
       </form>
     </div>
+  );
+}
+
+function GoogleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
+      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+    </svg>
   );
 }

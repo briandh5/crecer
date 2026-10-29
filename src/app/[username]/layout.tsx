@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { AppShell } from "@/components/AppShell";
 import { AuthPanel } from "@/components/AuthPanel";
+import { isGoogleConfigured } from "@/server/google";
 import { PlantIcon } from "@/components/PlantIcon";
 import { SwitchAccount } from "@/components/SwitchAccount";
 import { StoreProvider } from "@/lib/store";
@@ -57,7 +58,7 @@ export default async function ProfileLayout({ children, params }: { children: Re
           <h1 className="text-3xl font-semibold">Hola, @{username}</h1>
           <p className="mt-1 text-ink-soft">Entra con tu contraseña para ver tu perfil.</p>
         </div>
-        <AuthPanel initialUsername={username} lockUsername />
+        <AuthPanel initialUsername={username} lockUsername google={isGoogleConfigured()} />
         <Link href="/" className="text-sm font-bold text-moss hover:underline">¿No eres @{username}? Ir al inicio</Link>
       </Centered>
     );
