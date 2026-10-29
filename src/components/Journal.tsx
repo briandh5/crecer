@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ageInMonths, formatDate, formatMonths } from "@/lib/date";
 import { useStore } from "@/lib/store";
-import type { Child, JournalKind } from "@/lib/types";
+import type { Child, JournalEntry, JournalKind } from "@/lib/types";
 import { preparePhoto, PhotoError } from "@/lib/image";
 import { PlusIcon, TrashIcon } from "./Icons";
+import { Modal } from "./Modal";
 
 export const KINDS: { id: JournalKind; label: string; title: string; dot: string }[] = [
   { id: "sonrisa", label: "Primera sonrisa", title: "Primera sonrisa", dot: "bg-straw" },
@@ -27,6 +28,7 @@ export function Journal({ child }: { child: Child }) {
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [reading, setReading] = useState<string | null>(null);
   const [photo, setPhoto] = useState<{ blob: Blob; preview: string } | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -53,6 +55,8 @@ export function Journal({ child }: { child: Child }) {
     () => state.journal.filter((j) => j.childId === child.id).sort((a, b) => (a.occurredAt < b.occurredAt ? 1 : -1)),
     [state.journal, child.id],
   );
+
+  const readingEntry = entries.find((e) => e.id === reading) ?? null;
 
   function pickKind(id: JournalKind) {
     setKind(id);
@@ -107,8 +111,16 @@ export function Journal({ child }: { child: Child }) {
             </div>
           </div>
           <div>
-            <label htmlFor="j-note" className="label">Notas (opcional)</label>
-            <textarea id="j-note" className="field min-h-[96px] resize-y" value={note} onChange={(e) => setNote(e.target.value)} maxLength={600} placeholder="Dónde estaban, qué dijo, cómo reaccionaron…" />
+            <label htmlFor="j-note" className="label">Carta para {child.name} (opcional)</label>
+            <textarea
+              id="j-note"
+              className="field letter-paper letter-lines min-h-[10rem] resize-y !py-4 !leading-8"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              maxLength={600}
+              placeholder={`${dear(child)}: hoy… (cuéntale qué pasó, dónde estaban y cómo se sintieron, para que lo lea cuando sea grande)`}
+            />
+            <p className="mt-1 text-right text-xs text-ink-muted">{note.length}/600</p>
           </div>
           <div>
             <span className="label">Foto (opcional)</span>
@@ -146,45 +158,110 @@ export function Journal({ child }: { child: Child }) {
           <p className="mt-1 text-sm">Una sonrisa, una palabra nueva, un paso: lo pequeño se vuelve grande con el tiempo.</p>
         </div>
       ) : (
-        <ol className="relative space-y-5 border-l-2 border-dashed border-sage/50 pl-6 sm:pl-8">
-          {entries.map((e) => {
-            const kindInfo = KINDS.find((k) => k.id === e.kind) ?? KINDS[KINDS.length - 1];
-            const ageAt = ageInMonths(child.birthDate, e.occurredAt);
-            return (
-              <li key={e.id} className="relative">
-                <span className={`absolute -left-[2.15rem] top-5 h-4 w-4 rounded-full border-[3px] border-linen sm:-left-[2.65rem] ${kindInfo.dot}`} aria-hidden />
-                <article className="card !p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wide text-sage-600">
-                        {formatDate(e.occurredAt)} · {ageAt === 0 ? "recién nacido/a" : `a los ${formatMonths(ageAt)}`}
-                      </p>
-                      <h3 className="mt-0.5 text-xl font-semibold">{e.title}</h3>
-                    </div>
-                    {confirmId === e.id ? (
-                      <span className="inline-flex shrink-0 gap-1">
-                        <button type="button" className="btn-danger !min-h-[36px] !px-3 text-xs" onClick={() => { actions.removeJournal(e.id); setConfirmId(null); }}>Borrar</button>
-                        <button type="button" className="btn-ghost !min-h-[36px] !px-3 text-xs" onClick={() => setConfirmId(null)}>No</button>
-                      </span>
-                    ) : (
-                      <button type="button" className="btn-ghost !min-h-[40px] !px-2.5 text-ink-muted" aria-label={`Borrar recuerdo: ${e.title}`} onClick={() => setConfirmId(e.id)}>
-                        <TrashIcon width={18} height={18} />
-                      </button>
-                    )}
-                  </div>
-                  {e.note && <p className="mt-2 whitespace-pre-line text-ink-soft">{e.note}</p>}
-                  {photoUrl(e) && (
-                    <a href={photoUrl(e)!} target="_blank" rel="noreferrer" className="mt-3 block overflow-hidden rounded-2xl bg-linen-100" aria-label={`Abrir la foto de «${e.title}» en grande`}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={photoUrl(e)!} alt={`Foto del recuerdo: ${e.title}`} loading="lazy" className="max-h-96 w-full object-cover" />
-                    </a>
-                  )}
-                </article>
-              </li>
-            );
-          })}
+        <ol className="mx-auto max-w-2xl space-y-8">
+          {entries.map((e, i) => (
+            <li key={e.id} className={i % 2 ? "sm:rotate-[0.4deg]" : "sm:-rotate-[0.4deg]"}>
+              <LetterCard
+                child={child}
+                entry={e}
+                photo={photoUrl(e)}
+                confirming={confirmId === e.id}
+                onAskDelete={() => setConfirmId(e.id)}
+                onCancelDelete={() => setConfirmId(null)}
+                onDelete={() => { actions.removeJournal(e.id); setConfirmId(null); }}
+                onOpen={() => setReading(e.id)}
+              />
+            </li>
+          ))}
         </ol>
       )}
+
+      <Modal wide open={!!readingEntry} onClose={() => setReading(null)} title={readingEntry ? readingEntry.title : "Carta"}>
+        {readingEntry && <Letter child={child} entry={readingEntry} photo={photoUrl(readingEntry)} full />}
+      </Modal>
     </div>
+  );
+}
+
+/** «Querida Sofía» / «Querido Mateo» / «Para Alex». */
+function dear(child: Child) {
+  return child.sex === "female" ? `Querida ${child.name}` : child.sex === "male" ? `Querido ${child.name}` : `Para ${child.name}`;
+}
+
+/** «cuando eras recién nacida» / «cuando tenías 7 meses». */
+function whenYouWere(child: Child, occurredAt: string) {
+  const months = ageInMonths(child.birthDate, occurredAt);
+  if (months === 0) return `cuando eras recién ${child.sex === "female" ? "nacida" : child.sex === "male" ? "nacido" : "nacido/a"}`;
+  return `cuando tenías ${formatMonths(months)}`;
+}
+
+/** La carta: foto con cinta, sello de fecha y edad, título y la nota en letra manuscrita sobre papel de renglones. */
+function Letter({ child, entry, photo, full = false }: { child: Child; entry: JournalEntry; photo: string | null; full?: boolean }) {
+  const kind = KINDS.find((k) => k.id === entry.kind) ?? KINDS[KINDS.length - 1];
+  return (
+    <div className="space-y-4">
+      {photo && (
+        <div className="relative mx-auto w-full max-w-md pt-3">
+          <span className="washi" aria-hidden />
+          <div className="rotate-[-1.2deg] rounded-xl bg-white p-2.5 pb-8 shadow-lift">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photo}
+              alt={`Foto del recuerdo: ${entry.title}`}
+              loading="lazy"
+              className={`w-full rounded-md bg-linen-100 ${full ? "max-h-[60dvh] object-contain" : "aspect-[4/3] object-cover"}`}
+            />
+            <p className="mt-2 text-center font-hand text-xl text-ink-soft">{formatDate(entry.occurredAt)}</p>
+          </div>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2 text-xs font-bold uppercase tracking-wide text-sage-600">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-sage-50 px-2.5 py-1 normal-case tracking-normal text-sage-700">
+          <span className={`h-2.5 w-2.5 rounded-full ${kind.dot}`} aria-hidden /> {kind.label}
+        </span>
+        {!photo && <span>{formatDate(entry.occurredAt)}</span>}
+      </div>
+      {!full && <h3 className="font-display text-2xl font-semibold leading-tight text-moss">{entry.title}</h3>}
+      <div className="letter-paper rounded-2xl px-5 py-4 sm:px-6">
+        <p className="letter-lines text-moss">{dear(child)}:</p>
+        {entry.note ? (
+          <p className={`letter-lines whitespace-pre-line ${full ? "" : "line-clamp-6"}`}>{entry.note}</p>
+        ) : (
+          <p className="letter-lines text-ink-muted">Este día también es parte de tu historia.</p>
+        )}
+        <p className="letter-lines mt-2 text-right">Con todo nuestro amor, {whenYouWere(child, entry.occurredAt)} ♡</p>
+      </div>
+    </div>
+  );
+}
+
+function LetterCard(props: {
+  child: Child;
+  entry: JournalEntry;
+  photo: string | null;
+  confirming: boolean;
+  onAskDelete(): void;
+  onCancelDelete(): void;
+  onDelete(): void;
+  onOpen(): void;
+}) {
+  const { child, entry, photo, confirming } = props;
+  return (
+    <article className="relative rounded-[1.75rem] border border-sand-100 bg-[#fffaf1] p-5 shadow-soft transition hover:rotate-0 hover:shadow-lift sm:p-7">
+      <Letter child={child} entry={entry} photo={photo} />
+      <div className="mt-4 flex items-center justify-between gap-2">
+        <button type="button" className="btn-soft !min-h-[40px]" onClick={props.onOpen}>Abrir carta</button>
+        {confirming ? (
+          <span className="inline-flex shrink-0 gap-1">
+            <button type="button" className="btn-danger !min-h-[36px] !px-3 text-xs" onClick={props.onDelete}>Borrar</button>
+            <button type="button" className="btn-ghost !min-h-[36px] !px-3 text-xs" onClick={props.onCancelDelete}>No</button>
+          </span>
+        ) : (
+          <button type="button" className="btn-ghost !min-h-[40px] !px-2.5 text-ink-muted" aria-label={`Borrar recuerdo: ${entry.title}`} onClick={props.onAskDelete}>
+            <TrashIcon width={18} height={18} />
+          </button>
+        )}
+      </div>
+    </article>
   );
 }
