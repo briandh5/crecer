@@ -8,10 +8,12 @@ interface Props {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /** Más ancho en escritorio (p. ej. para leer una carta del diario). */
+  wide?: boolean;
 }
 
 /** Hoja inferior en móvil, diálogo centrado en escritorio. Usa <dialog> nativo: foco atrapado y Esc gratis. */
-export function Modal({ open, onClose, title, children }: Props) {
+export function Modal({ open, onClose, title, children, wide = false }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -27,8 +29,8 @@ export function Modal({ open, onClose, title, children }: Props) {
       onClose={onClose}
       onClick={(e) => e.target === ref.current && onClose()}
       aria-label={title}
-      className="m-0 mt-auto max-h-[92dvh] w-full max-w-none overflow-y-auto rounded-t-3xl bg-linen p-0 text-ink shadow-lift backdrop:bg-ink/40 backdrop:backdrop-blur-[2px]
-        sm:m-auto sm:max-w-lg sm:rounded-3xl"
+      className={`m-0 mt-auto max-h-[92dvh] w-full max-w-none overflow-y-auto rounded-t-3xl bg-linen p-0 text-ink shadow-lift backdrop:bg-ink/40 backdrop:backdrop-blur-[2px]
+        sm:m-auto sm:rounded-3xl ${wide ? "sm:max-w-2xl" : "sm:max-w-lg"}`}
     >
       {open && (
         <div className="p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-6">

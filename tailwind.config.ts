@@ -81,6 +81,7 @@ const config: Config = {
       fontFamily: {
         sans: ["var(--font-nunito)", "ui-sans-serif", "system-ui", "sans-serif"],
         display: ["var(--font-fraunces)", "ui-serif", "Georgia", "serif"],
+        hand: ["var(--font-caveat)", "ui-serif", "cursive"],
       },
       borderRadius: {
         // Forma de hoja: esquinas opuestas más marcadas.

@@ -58,6 +58,19 @@
   .pill {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold;
   }
+  /* Diario: papel de carta (crema con renglones suaves) y cinta adhesiva para la foto. */
+  .letter-paper {
+    background-color: #fffdf7;
+    background-image: repeating-linear-gradient(to bottom, transparent 0, transparent calc(2rem - 1px), rgba(135, 169, 107, 0.22) calc(2rem - 1px), rgba(135, 169, 107, 0.22) 2rem);
+    /* Con py-4 (1rem) y renglones de 2rem, cada línea de texto queda apoyada sobre un renglón. */
+    background-position: 0 1rem;
+  }
+  .letter-lines {
+    @apply font-hand text-[1.45rem] leading-8 text-ink-soft;
+  }
+  .washi {
+    @apply pointer-events-none absolute left-1/2 top-0 z-10 h-6 w-24 -translate-x-1/2 -translate-y-1/2 -rotate-3 rounded-sm bg-straw-200/80 shadow-sm;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
