@@ -5,7 +5,7 @@ import { isMailConfigured } from "@/server/mail";
 
 export const dynamic = "force-dynamic";
 
-const TABLES = ["users", "sessions", "rate_events", "children", "measurements", "vaccines", "child_vaccines", "milestones", "child_milestones", "journal_entries", "journal_photos", "password_resets"];
+const TABLES = ["users", "sessions", "rate_events", "children", "measurements", "vaccines", "child_vaccines", "milestones", "child_milestones", "journal_entries", "journal_photos", "password_resets", "family_links", "family_invites"];
 
 /**
  * Diagnóstico de puesta en marcha: dice qué falta sin revelar secretos (solo sí/no y códigos técnicos).
@@ -34,6 +34,7 @@ export async function GET() {
     const hint: string[] = [];
     if (missingTables.includes("users")) hint.push("Faltan las tablas: ejecuta supabase/setup.sql en el SQL Editor de Supabase.");
     else if (!out.usersHasEmailColumn || missingTables.includes("password_resets")) hint.push("Ejecuta supabase/migrations/0002_email_recovery.sql en el SQL Editor de Supabase.");
+    else if (missingTables.includes("family_links") || missingTables.includes("family_invites")) hint.push("Ejecuta supabase/migrations/0003_family.sql en el SQL Editor de Supabase (para «Familia»).");
     if (!have.has("vaccines")) hint.push("Faltan los catálogos de vacunas e hitos (supabase/setup.sql los incluye).");
     if (!out.smtpHostSet) hint.push("Sin SMTP_HOST: «Olvidaste tu contraseña» no enviará correos.");
     if (!out.appUrlSet) hint.push("Sin APP_URL: los enlaces de los correos usarán la dirección con la que se pidió el enlace.");

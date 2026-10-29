@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { findOrCreateGoogleUser, GoogleError, googleEmail, googleRedirectUri, isGoogleConfigured, OAUTH_COOKIE } from "@/server/google";
+import { findOrCreateGoogleUser, GoogleError, googleEmail, googleRedirectUri, isGoogleConfigured, OAUTH_COOKIE, safeNext } from "@/server/google";
 import { appUrl, clientIp } from "@/server/http";
 import { isLimited, record } from "@/server/rate-limit";
 import { startSession } from "@/server/session";
@@ -20,7 +20,8 @@ export async function GET(req: Request) {
   if (params.get("error")) return back("cancelado");
 
   // El «state» debe ser el que guardamos al salir: así nadie puede colarnos un código ajeno (CSRF).
-  const [state, verifier] = saved.split(".");
+  const [state, verifier, nextB64] = saved.split(".");
+  const next = safeNext(nextB64 ? Buffer.from(nextB64, "base64url").toString("utf8") : null);
   const code = params.get("code");
   if (!state || !verifier || !code || params.get("state") !== state) return back("error");
 
@@ -31,7 +32,7 @@ export async function GET(req: Request) {
     if (!user) return back("limite");
     if (user.created) await record(bucket);
     await startSession(user.id);
-    return NextResponse.redirect(`${base}/${user.username}`);
+    return NextResponse.redirect(`${base}${next ?? `/${user.username}`}`);
   } catch (e) {
     if (!(e instanceof GoogleError)) console.error("[crecer] error con Google:", e);
     else console.warn("[crecer] Google:", e.message);

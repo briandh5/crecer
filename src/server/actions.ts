@@ -1,10 +1,11 @@
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import { tx } from "./db";
+import { familyOwners } from "./family";
 
 /**
  * Las mismas acciones que usa el almacén del navegador (src/lib/store.tsx), validadas y aplicadas en la base.
- * Toda fila se comprueba contra el dueño: un usuario nunca puede tocar datos de otro.
+ * Toda fila se comprueba contra el dueño o su familia (src/server/family.ts): nadie más puede tocar esos datos.
  */
 
 export class ActionError extends Error {
@@ -91,7 +92,7 @@ export function parseAction(input: unknown): ServerAction {
 }
 
 async function assertOwnsChild(c: PoolClient, userId: string, childId: string) {
-  const { rowCount } = await c.query(`select 1 from public.children where id = $1 and owner_id = $2`, [childId, userId]);
+  const { rowCount } = await c.query(`select 1 from public.children where id = $1 and owner_id in ${familyOwners("$2")}`, [childId, userId]);
   if (!rowCount) throw new ActionError(404, "No encontrado.");
 }
 
@@ -129,12 +130,17 @@ export async function applyAction(userId: string, raw: unknown): Promise<void> {
         const entries = Object.entries(a.patch).filter(([, v]) => v !== undefined);
         if (!entries.length) return;
         const sets = entries.map(([k], i) => `${FIELD_COLUMNS[k]} = $${i + 3}`);
-        const r = await c.query(`update public.children set ${sets.join(", ")} where id = $1 and owner_id = $2`, [a.id, userId, ...entries.map(([, v]) => v)]);
+        const r = await c.query(`update public.children set ${sets.join(", ")} where id = $1 and owner_id in ${familyOwners("$2")}`, [a.id, userId, ...entries.map(([, v]) => v)]);
         if (!r.rowCount) throw new ActionError(404, "No encontrado.");
         return;
       }
       case "removeChild": {
-        await c.query(`delete from public.children where id = $1 and owner_id = $2`, [a.id, userId]);
+        // Borrar un perfil (con todo su historial) solo lo puede hacer la cuenta que lo creó, no la familia.
+        const r = await c.query(`delete from public.children where id = $1 and owner_id = $2`, [a.id, userId]);
+        if (!r.rowCount) {
+          await assertOwnsChild(c, userId, a.id);
+          throw new ActionError(403, "Solo la cuenta que creó este perfil puede borrarlo.");
+        }
         return;
       }
       case "addMeasurement": {
@@ -152,7 +158,7 @@ export async function applyAction(userId: string, raw: unknown): Promise<void> {
         // La medición de nacimiento se edita desde la ficha, no se borra.
         await c.query(
           `delete from public.measurements m using public.children ch
-            where m.id = $1 and m.source = 'manual' and ch.id = m.child_id and ch.owner_id = $2`,
+            where m.id = $1 and m.source = 'manual' and ch.id = m.child_id and ch.owner_id in ${familyOwners("$2")}`,
           [a.id, userId],
         );
         return;
@@ -201,7 +207,8 @@ export async function applyAction(userId: string, raw: unknown): Promise<void> {
       }
       case "removeJournal": {
         await c.query(
-          `delete from public.journal_entries j using public.children ch where j.id = $1 and ch.id = j.child_id and ch.owner_id = $2`,
+          `delete from public.journal_entries j using public.children ch
+            where j.id = $1 and ch.id = j.child_id and ch.owner_id in ${familyOwners("$2")}`,
           [a.id, userId],
         );
         return;

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { query } from "@/server/db";
+import { familyOwners } from "@/server/family";
 import { fail, handleError, sameOrigin } from "@/server/http";
 import { getSessionUser } from "@/server/session";
 
@@ -8,7 +9,7 @@ const idSchema = z.string().uuid();
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** Foto de un recuerdo del diario. Solo la ve la cuenta dueña. */
+/** Foto de un recuerdo del diario. Solo la ven la cuenta dueña y su familia. */
 export async function GET(_req: Request, { params }: Ctx) {
   try {
     const id = idSchema.safeParse((await params).id);
@@ -20,7 +21,7 @@ export async function GET(_req: Request, { params }: Ctx) {
          from public.journal_photos p
          join public.journal_entries j on j.id = p.entry_id
          join public.children c on c.id = j.child_id
-        where p.entry_id = $1 and c.owner_id = $2`,
+        where p.entry_id = $1 and c.owner_id in ${familyOwners("$2")}`,
       [id.data, user.id],
     );
     if (!rows[0]) return fail(404, "No encontrada.");
@@ -57,7 +58,7 @@ export async function POST(req: Request, { params }: Ctx) {
       `insert into public.journal_photos (entry_id, mime, data)
        select j.id, 'image/jpeg', $3
          from public.journal_entries j join public.children c on c.id = j.child_id
-        where j.id = $1 and c.owner_id = $2
+        where j.id = $1 and c.owner_id in ${familyOwners("$2")}
        on conflict (entry_id) do update set data = excluded.data, created_at = now()`,
       [id.data, user.id, buf],
     );

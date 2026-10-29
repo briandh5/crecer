@@ -14,6 +14,10 @@ interface Props {
   google?: boolean;
   /** Aviso con el que se abre la pantalla (p. ej. si falló el inicio con Google). */
   initialError?: string | null;
+  /** Correo con el que se abre «Crear cuenta» (p. ej. el de una invitación). */
+  initialEmail?: string;
+  /** Ruta a la que volver después de entrar (por defecto, el perfil). */
+  next?: string;
 }
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9_-]{2,29}$/;
@@ -26,10 +30,12 @@ export function AuthPanel({
   defaultTab = "login",
   google = false,
   initialError = null,
+  initialEmail = "",
+  next,
 }: Props) {
   const [tab, setTab] = useState<"login" | "register">(lockUsername ? "login" : defaultTab);
   const [username, setUsername] = useState(initialUsername);
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [show, setShow] = useState(false);
@@ -74,7 +80,7 @@ export function AuthPanel({
         return;
       }
       // Navegación completa: así el servidor ya ve la sesión nueva y carga tus datos.
-      window.location.assign(`/${body?.username ?? cleanUser}`);
+      window.location.assign(next ?? `/${body?.username ?? cleanUser}`);
     } catch {
       setError("Sin conexión. Revisa tu internet e inténtalo de nuevo.");
     } finally {
@@ -107,7 +113,7 @@ export function AuthPanel({
       {google && (
         <>
           {/* Enlace normal (no fetch): Google tiene que abrirse como página completa. */}
-          <a href="/api/auth/google" className="btn-soft w-full gap-3">
+          <a href={`/api/auth/google${next ? `?next=${encodeURIComponent(next)}` : ""}`} className="btn-soft w-full gap-3">
             <GoogleIcon />
             Continuar con Google
           </a>

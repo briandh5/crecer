@@ -1,5 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
-import { hashPassword, usernameFromEmail, validateEmail } from "./auth-core";
+import { hashPassword, safeNext, usernameFromEmail, validateEmail } from "./auth-core";
+
+export { safeNext };
 import { query } from "./db";
 
 /**
@@ -20,7 +22,7 @@ export const isGoogleConfigured = () => !!process.env.GOOGLE_CLIENT_ID && !!proc
 export const googleRedirectUri = (base: string) => `${base}/api/auth/google/callback`;
 
 /** Dirección de Google a la que se manda a la persona, y los valores que hay que recordar en una cookie. */
-export function googleAuthRequest(redirectUri: string) {
+export function googleAuthRequest(redirectUri: string, next: string | null = null) {
   const state = randomBytes(24).toString("base64url");
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
@@ -35,7 +37,8 @@ export function googleAuthRequest(redirectUri: string) {
     code_challenge_method: "S256",
     prompt: "select_account",
   }).toString();
-  return { url: url.toString(), cookie: `${state}.${verifier}` };
+  const cookie = [state, verifier, next ? Buffer.from(next).toString("base64url") : ""].join(".");
+  return { url: url.toString(), cookie };
 }
 
 export class GoogleError extends Error {}
