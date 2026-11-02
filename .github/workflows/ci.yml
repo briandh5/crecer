@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Tipos, pruebas unitarias y build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      # Sin DATABASE_URL: la app debe compilar igual (modo demo).
+      - run: npm run build
+
+  integration:
+    name: Integración (API + PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # Base desechable que solo vive dentro del job: sin contraseña, acceso por "trust".
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      DATABASE_URL: postgresql://postgres@localhost:5432/crecer
+      APP_URL: http://localhost:3100
+      BASE_URL: http://localhost:3100
+      # Buzón SMTP falso que levantan las propias pruebas.
+      SMTP_HOST: 127.0.0.1
+      SMTP_PORT: "2525"
+      SMTP_SECURE: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Migraciones aplican en orden desde cero (0001 → última)
+        run: |
+          createdb crecer_migraciones
+          for f in supabase/migrations/*.sql; do
+            echo "::group::$f"
+            psql -v ON_ERROR_STOP=1 -q -d crecer_migraciones -f "$f"
+            echo "::endgroup::"
+          done
+
+      - name: Base de pruebas como en producción (setup.sql + migraciones, dos veces para probar que son idempotentes)
+        run: |
+          createdb crecer
+          psql -v ON_ERROR_STOP=1 -q -d crecer -f supabase/setup.sql
+          for pass in 1 2; do
+            for f in supabase/migrations/0002_*.sql supabase/migrations/0003_*.sql; do
+              psql -v ON_ERROR_STOP=1 -q -d crecer -f "$f"
+            done
+          done
+
+      - run: npm run build
+
+      - name: Arrancar el servidor
+        run: |
+          npx next start -p 3100 > next.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3100/api/health | tee health.json | grep -q '"ok":true'; then exit 0; fi
+            sleep 1
+          done
+          echo "El servidor no quedó sano:"; cat health.json || true; cat next.log; exit 1
+
+      - run: npm run test:integration
+
+      - name: Log del servidor si algo falla
+        if: failure()
+        run: cat next.log

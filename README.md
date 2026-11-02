@@ -1,5 +1,7 @@
 # Crecer — acompañamiento del desarrollo infantil
 
+[![CI](https://github.com/briandh5/crecer/actions/workflows/ci.yml/badge.svg)](https://github.com/briandh5/crecer/actions/workflows/ci.yml)
+
 App n.º 3 del reto de 100 apps. Next.js 15 (App Router) + Tailwind CSS 3 + TypeScript + Recharts + PostgreSQL (Supabase), pensada para Vercel.
 
 ## Qué incluye
@@ -84,6 +86,13 @@ DATABASE_URL=postgres://… npm run build
 DATABASE_URL=postgres://… SMTP_HOST=127.0.0.1 SMTP_PORT=2525 SMTP_SECURE=false APP_URL=http://localhost:3100 npm start -- -p 3100
 DATABASE_URL=postgres://… BASE_URL=http://localhost:3100 npm run test:integration   # levanta su propio SMTP falso en el puerto 2525
 ```
+
+### Integración continua
+
+Cada PR y cada push a `main` corre `.github/workflows/ci.yml`:
+
+- **Tipos, pruebas unitarias y build**: `typecheck`, `npm test` y `next build` sin `DATABASE_URL` (el modo demo debe compilar solo).
+- **Integración**: un PostgreSQL 16 real en un contenedor. Comprueba que las migraciones aplican en orden desde `0001`, que `setup.sql` + migraciones se pueden repetir sin error, arranca el servidor, espera a que `/api/health` diga `ok` y corre `npm run test:integration`.
 
 Los catálogos son `src/data/vaccines.json` y `milestones.json`; `npm run db:seed` regenera `supabase/seed.sql` y `supabase/setup.sql`.
 

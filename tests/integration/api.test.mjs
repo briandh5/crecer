@@ -218,8 +218,8 @@ test("aislamiento: B no puede ver ni tocar los datos de A", async () => {
   assert.equal((await act({ type: "addJournal", entry: { id: randomUUID(), childId: childA, kind: "otro", title: "x", occurredAt: "2024-08-10", note: "" } })).status, 404);
   assert.equal((await act({ type: "updateChild", id: childA, patch: { name: "Hackeado" } })).status, 404);
   assert.equal((await act({ type: "addChild", child: { id: childA, name: "Robado", birthDate: "2020-01-01", sex: "male", tone: "moss", bloodType: "unknown", allergies: [], notes: "", birthWeightKg: null, birthLengthCm: null, birthHeadCm: null } })).status, 404, "no puede apropiarse del id de A");
-  // Borrados ajenos: responden bien pero no hacen nada.
-  assert.equal((await act({ type: "removeChild", id: childA })).status, 200);
+  // Borrar un perfil ajeno responde 404 (como si no existiera); borrar un recuerdo ajeno no hace nada.
+  assert.equal((await act({ type: "removeChild", id: childA })).status, 404);
   assert.equal((await act({ type: "removeJournal", id: entryA })).status, 200);
 
   const sb = (await B.json("/api/state")).body;
