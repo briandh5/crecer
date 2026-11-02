@@ -37,7 +37,8 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_PASSWORD: postgres
+          # Base desechable que solo vive dentro del job: sin contraseña, acceso por "trust".
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -47,8 +48,7 @@ jobs:
     env:
       PGHOST: localhost
       PGUSER: postgres
-      PGPASSWORD: postgres
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/crecer
+      DATABASE_URL: postgresql://postgres@localhost:5432/crecer
       APP_URL: http://localhost:3100
       BASE_URL: http://localhost:3100
       # Buzón SMTP falso que levantan las propias pruebas.
